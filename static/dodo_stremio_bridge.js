@@ -17,6 +17,38 @@
     }
   } catch (e) {}
 
+  // ⬆ ترتيب الأقسام المحفوظ: يُطبَّق على ملف profile قبل إنشاء محرك Stremio (ضمان صفر سباقات)
+  function dodoApplySavedOrderToProfile() {
+    try {
+      var raw = localStorage.getItem('dodo_addon_order_v1');
+      if (!raw) return;
+      var urls = JSON.parse(raw);
+      if (!Array.isArray(urls) || urls.length < 2) return;
+      var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+      if (!prof || !Array.isArray(prof.addons) || prof.addons.length < 2) return;
+      var seen = {};
+      var ordered = [];
+      urls.forEach(function (u) {
+        if (seen[u]) return;
+        for (var i = 0; i < prof.addons.length; i++) {
+          if (prof.addons[i].transportUrl === u) { seen[u] = true; ordered.push(prof.addons[i]); break; }
+        }
+      });
+      prof.addons.forEach(function (a) {
+        if (!seen[a.transportUrl]) { seen[a.transportUrl] = true; ordered.push(a); }
+      });
+      var changed = false;
+      for (var c = 0; c < ordered.length; c++) {
+        if (ordered[c] !== prof.addons[c]) { changed = true; break; }
+      }
+      if (changed && ordered.length === prof.addons.length) {
+        prof.addons = ordered;
+        localStorage.setItem('profile', JSON.stringify(prof));
+      }
+    } catch (e) {}
+  }
+  dodoApplySavedOrderToProfile();
+
   function getInvite() {
     try {
       return localStorage.getItem(KEY_INVITE) || '';
@@ -805,15 +837,22 @@
       arrangement = arrangement.filter(function (title) {
         return rows.some(function (row) { return row.getAttribute('data-dodo-title') === title || dodoRowTitle(row) === title; });
       });
-      // 3) رتب عقد DOM حسب الترتيب المنطقي
-      arrangement.forEach(function (title) {
-        for (var i = 0; i < rows.length; i++) {
-          if (rows[i].getAttribute('data-dodo-title') === title || dodoRowTitle(rows[i]) === title) {
-            cont.appendChild(rows[i]);
-            return;
+      // 3) رتب عقد DOM حسب الترتيب المنطقي — فقط إذا اختلف الترتيب الفعلي (منع دورات طفريات بلا نهاية)
+      var currentOrder = rows.map(function (row) { return row.getAttribute('data-dodo-title') || dodoRowTitle(row); });
+      var needsMove = false;
+      for (var d = 0; d < arrangement.length; d++) {
+        if (currentOrder[d] !== arrangement[d]) { needsMove = true; break; }
+      }
+      if (needsMove) {
+        arrangement.forEach(function (title) {
+          for (var i = 0; i < rows.length; i++) {
+            if (rows[i].getAttribute('data-dodo-title') === title || dodoRowTitle(rows[i]) === title) {
+              cont.appendChild(rows[i]);
+              return;
+            }
           }
-        }
-      });
+        });
+      }
     }
 
     function cleanup() {
@@ -906,8 +945,9 @@
           }
           prof.addons = ordered;
           localStorage.setItem('profile', JSON.stringify(prof));
+          try { localStorage.setItem('dodo_addon_order_v1', JSON.stringify(urls)); } catch (e2) {}
           showDodoToast('✅ تم حفظ ترتيبك — جارٍ إعادة التحميل...');
-          setTimeout(function () { window.location.reload(); }, 900);
+          setTimeout(function () { window.location.reload(); }, 250);
         } catch (err) {
           sb.disabled = false;
           sb.textContent = '💾 حفظ الترتيب';
