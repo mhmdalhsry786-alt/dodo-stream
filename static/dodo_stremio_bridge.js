@@ -853,6 +853,21 @@
           }
         });
       }
+      // حدّث شريط الحالة: انتظار الأقسام / جاهز للسحب
+      var markedCount = 0;
+      rows.forEach(function (row) { if (row.classList.contains('dodo-drag-section')) markedCount++; });
+      var hint = document.getElementById('dodo-ar-hint');
+      var sBtn = saveBar ? saveBar.querySelector('.dodo-save-btn') : null;
+      if (hint) {
+        hint.textContent = markedCount >= 2
+          ? 'اسحب كل قسم إلى موضعه (أو ⬆⬇)'
+          : (markedCount === 0
+              ? '⏳ جارٍ ظهور الأقسام... إن ظلّت الشاشة فارغة أغلق التبويب وافتحه من جديد'
+              : '⏳ جارٍ ظهور بقية الأقسام...');
+      }
+      if (sBtn && sBtn.getAttribute('data-busy') !== '1') {
+        sBtn.disabled = markedCount < 2;
+      }
     }
 
     function cleanup() {
@@ -905,13 +920,14 @@
       saveBar = document.createElement('div');
       saveBar.className = 'dodo-save-bar';
       saveBar.innerHTML =
-        '<span>اسحب كل قسم إلى موضعه (أو ⬆⬇)</span>' +
-        '<button type="button" class="dodo-save-btn">💾 حفظ الترتيب</button>' +
+        '<span id="dodo-ar-hint">⏳ جارٍ ظهور الأقسام...</span>' +
+        '<button type="button" class="dodo-save-btn" disabled>💾 حفظ الترتيب</button>' +
         '<button type="button" class="dodo-cancel-btn">✕ إلغاء</button>';
       document.body.appendChild(saveBar);
       saveBar.querySelector('.dodo-save-btn').addEventListener('click', function () {
         var sb = saveBar.querySelector('.dodo-save-btn');
         sb.disabled = true;
+        sb.setAttribute('data-busy', '1');
         sb.textContent = '⏳ جارٍ الحفظ...';
         try {
           // رتبب الإضافات بحسب أول ظهور لأقسامها
