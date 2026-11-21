@@ -202,6 +202,70 @@
         await self.local_storage_set_item('dodo_stremio_v5_seeded_v2', '1');
       } catch (e) {}
     }
+
+    await enforceDodoHomeOrder();
+  }
+
+  // ترتيب أقسام الصفحة الرئيسية تلقائيًا:
+  // 1) أفلام رائجة ثم مسلسلات رائجة (Cinemeta) 2) نتفلكس 3) بقية الإضافات 4) الكرتون المدبلج أخيرًا
+  // يعمل بصمت عند كل إقلاع، ولا ينفذ أي عملية إذا كان الترتيب صحيحًا بالفعل.
+  async function enforceDodoHomeOrder() {
+    if (typeof self.getState !== 'function' || typeof self.dispatch !== 'function') return;
+    var ctx = await self.getState('ctx');
+    var addons = (ctx && ctx.profile && Array.isArray(ctx.profile.addons)) ? ctx.profile.addons : [];
+    var movable = [];
+    for (var i = 0; i < addons.length; i++) {
+      var a = addons[i];
+      if (a && a.transportUrl && a.manifest && !(a.flags && (a.flags.protected || a.flags.official))) {
+        movable.push(a);
+      }
+    }
+    if (movable.length < 2) return;
+
+    function rank(a) {
+      var url = (a.transportUrl || '').toLowerCase();
+      var id = ((a.manifest && a.manifest.id) || '').toLowerCase();
+      if (id.indexOf('cinemeta') !== -1 || url.indexOf('cinemeta') !== -1) return 1;
+      if (id.indexOf('netflix') !== -1 || url.indexOf('netflix') !== -1) return 2;
+      if (url.indexOf('/addons/cartoons') !== -1 || id.indexOf('cartoon') !== -1) return 4;
+      return 3;
+    }
+    var sorted = movable.slice().sort(function (x, y) { return rank(x) - rank(y); });
+    var same = true;
+    for (var s = 0; s < sorted.length; s++) {
+      if (sorted[s] !== movable[s]) { same = false; break; }
+    }
+    if (same) return;
+
+    for (var k = 0; k < movable.length; k++) {
+      try {
+        await self.dispatch(
+          { action: 'Ctx', args: { action: 'UninstallAddon', args: movable[k] } },
+          'ctx',
+          '#/'
+        );
+      } catch (e) {}
+    }
+    for (var m = 0; m < sorted.length; m++) {
+      var it = sorted[m];
+      try {
+        await self.dispatch(
+          {
+            action: 'Ctx',
+            args: {
+              action: 'InstallAddon',
+              args: {
+                transportUrl: it.transportUrl,
+                manifest: it.manifest,
+                flags: it.flags && typeof it.flags === 'object' ? it.flags : { official: false, protected: false }
+              }
+            }
+          },
+          'ctx',
+          '#/'
+        );
+      } catch (e2) {}
+    }
   }
 
   self.addEventListener('message', function (ev) {
@@ -274,11 +338,11 @@
             if (byUrl[d.order[j]]) seq.push(byUrl[d.order[j]]);
           }
           if (!seq.length) throw new Error('لا توجد إضافات قابلة للترتيب');
-          // 1) أزلها كلها أولًا (ترتيب التثبيت هو ما يحدد ترتيب الظهور)
+          // 1) أزلها كلها أولًا (ترتيب التثبيت هو ما يحدد ترتيب الظهور) — UninstallAddon يستقبل كائن الإضافة كاملًا
           for (var k = 0; k < seq.length; k++) {
             try {
               await self.dispatch(
-                { action: 'Ctx', args: { action: 'UninstallAddon', args: seq[k].transportUrl } },
+                { action: 'Ctx', args: { action: 'UninstallAddon', args: seq[k] } },
                 'ctx',
                 '#/'
               );

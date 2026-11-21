@@ -572,156 +572,6 @@
     });
   }
 
-  // 7b. Addon Reorder (↕ ترتيب الإضافات) — يظهر فقط داخل صفحة الإضافات
-  function mountDodoAddonReorder() {
-    if (document.getElementById('dodo-reorder-btn')) return;
-
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'dodo-reorder-btn';
-    btn.title = 'ترتيب الإضافات: غيّر ظهورها من الأول إلى الأخير';
-    btn.innerHTML = '<span>↕</span><span>ترتيب الإضافات</span>';
-    btn.style.cssText =
-      'position:fixed;bottom:22px;inset-inline-start:22px;z-index:2147483000;display:none;' +
-      'align-items:center;gap:8px;padding:10px 18px;border:0;border-radius:999px;cursor:pointer;' +
-      'background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;font:600 14px inherit;' +
-      'box-shadow:0 6px 22px rgba(0,0,0,0.45);';
-    document.body.appendChild(btn);
-
-    function syncVisibility() {
-      var h = window.location.hash || '';
-      btn.style.display = h.indexOf('#/addons') === 0 ? 'flex' : 'none';
-    }
-    window.addEventListener('hashchange', syncVisibility);
-    syncVisibility();
-
-    btn.addEventListener('click', async function () {
-      var modal = document.createElement('div');
-      modal.className = 'dodo-modal-backdrop dodo-hidden';
-      modal.innerHTML =
-        '<div class="dodo-modal-card" style="max-width:520px;max-height:82vh;display:flex;flex-direction:column;">' +
-        '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
-        '    <h3 style="margin:0;">↕ ترتيب الإضافات</h3>' +
-        '    <button type="button" id="dodo-rd-close" class="dodo-btn-ghost">✕ إغلاق</button>' +
-        '  </div>' +
-        '  <p style="margin:0 0 12px;color:#94a3b8;font-size:12.5px;line-height:1.6;">' +
-        '    رتّبها <strong>من الأول إلى الأخير</strong> بالسحب أو بالأسهم ⬆⬇ — الترتيب الجديد يسري فورًا على قائمة الإضافات وعلى أقسام الصفحة الرئيسية.' +
-        '  </p>' +
-        '  <div id="dodo-rd-list" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;padding:2px;"></div>' +
-        '  <div style="display:flex;gap:8px;margin-top:14px;">' +
-        '    <button type="button" id="dodo-rd-save" class="dodo-btn-primary" style="flex:1;">💾 حفظ الترتيب</button>' +
-        '  </div>' +
-        '</div>';
-      document.body.appendChild(modal);
-
-      var listEl = modal.querySelector('#dodo-rd-list');
-      var saveBtn = modal.querySelector('#dodo-rd-save');
-      var items = [];
-      var dragging = null;
-
-      function render() {
-        listEl.innerHTML = '';
-        items.forEach(function (it, idx) {
-          var row = document.createElement('div');
-          row.draggable = true;
-          row.style.cssText =
-            'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;' +
-            'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:grab;';
-          row.innerHTML =
-            '<span style="min-width:22px;text-align:center;color:#64748b;font-size:13px;">' + (idx + 1) + '</span>' +
-            '<span style="flex:1;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-            it.name.replace(/</g, '&lt;') +
-            (it.protected ? ' <span style="font-size:11px;color:#f59e0b;">🔒 محمية</span>' : '') +
-            '</span>';
-          var up = document.createElement('button');
-          up.type = 'button';
-          up.textContent = '⬆';
-          up.disabled = idx === 0;
-          up.style.cssText =
-            'width:34px;height:34px;border-radius:9px;border:1px solid rgba(255,255,255,0.12);' +
-            'background:rgba(255,255,255,0.06);color:#e2e8f0;font-size:14px;cursor:pointer;' +
-            (idx === 0 ? 'opacity:0.3;cursor:default;' : '');
-          up.addEventListener('click', function () {
-            if (idx > 0) {
-              items.splice(idx - 1, 0, items.splice(idx, 1)[0]);
-              render();
-            }
-          });
-          var down = document.createElement('button');
-          down.type = 'button';
-          down.textContent = '⬇';
-          down.disabled = idx === items.length - 1;
-          down.style.cssText =
-            'width:34px;height:34px;border-radius:9px;border:1px solid rgba(255,255,255,0.12);' +
-            'background:rgba(255,255,255,0.06);color:#e2e8f0;font-size:14px;cursor:pointer;' +
-            (idx === items.length - 1 ? 'opacity:0.3;cursor:default;' : '');
-          down.addEventListener('click', function () {
-            if (idx < items.length - 1) {
-              items.splice(idx + 1, 0, items.splice(idx, 1)[0]);
-              render();
-            }
-          });
-          row.appendChild(up);
-          row.appendChild(down);
-
-          row.addEventListener('dragstart', function () { dragging = idx; row.style.opacity = '0.4'; });
-          row.addEventListener('dragend', function () { row.style.opacity = '1'; dragging = null; });
-          row.addEventListener('dragover', function (ev) { ev.preventDefault(); });
-          row.addEventListener('drop', function (ev) {
-            ev.preventDefault();
-            if (dragging === null || dragging === idx) return;
-            var moved = items.splice(dragging, 1)[0];
-            items.splice(idx, 0, moved);
-            dragging = null;
-            render();
-          });
-
-          listEl.appendChild(row);
-        });
-      }
-
-      modal.querySelector('#dodo-rd-close').addEventListener('click', function () {
-        modal.remove();
-      });
-      modal.addEventListener('click', function (ev) {
-        if (ev.target === modal) modal.remove();
-      });
-
-      saveBtn.addEventListener('click', async function () {
-        saveBtn.disabled = true;
-        saveBtn.textContent = '⏳ جارٍ تطبيق الترتيب...';
-        try {
-          var res = await callCoreWorker('reorderAddons', {
-            order: items.map(function (it) { return it.transportUrl; })
-          });
-          showDodoToast('✅ تم حفظ ترتيب الإضافات (' + (res.count || items.length) + ')');
-          modal.remove();
-        } catch (err) {
-          saveBtn.disabled = false;
-          saveBtn.textContent = '💾 حفظ الترتيب';
-          showDodoToast('تعذر الترتيب: ' + (err && err.message ? err.message : 'حاول مرة أخرى'));
-        }
-      });
-
-      modal.classList.remove('dodo-hidden');
-      listEl.innerHTML =
-        '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:20px 0;">⏳ جارٍ قراءة الإضافات...</p>';
-      try {
-        var addonsRes = await callCoreWorker('getAddons', {});
-        items = (addonsRes && Array.isArray(addonsRes.addons)) ? addonsRes.addons.slice() : [];
-      } catch (err) {
-        items = [];
-      }
-      if (!items.length) {
-        listEl.innerHTML =
-          '<p style="color:#fb7185;font-size:13px;text-align:center;padding:20px 0;">لم يتم العثور على إضافات — تأكد أن المحرك جاهز ثم أعد المحاولة.</p>';
-        saveBtn.disabled = true;
-        return;
-      }
-      render();
-    });
-  }
-
   // 7. Bootstrap Privacy Check & Start DOM Observer
   function initDodoBridge() {
     applyFitMode(getFitMode());
@@ -772,11 +622,9 @@
         }
         dodoSig = (boot && boot.media_sig) || '';
         mountDodoQuickTools();
-        mountDodoAddonReorder();
       })
       .catch(function () {
         mountDodoQuickTools();
-        mountDodoAddonReorder();
       });
 
     var syncQueued = false;
