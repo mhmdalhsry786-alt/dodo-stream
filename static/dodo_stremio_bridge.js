@@ -416,12 +416,26 @@
             var t = a.innerText || '';
             return t.indexOf('المقطع الدعائي') === -1 && t.indexOf('Trailer') === -1;
           });
-          // Smart Multi-Device Picker: prefer direct HLS/MP4 or 1080p/720p H.264 (0% Video CPU stream-copy) over heavy 4K HEVC!
+          // dodoStreamKind: يفك ترميز رابط المشغل ليعرف نوع المصدر (مباشر/تورنت)
+          function dodoStreamKind(a) {
+            try {
+              var part = (a.getAttribute('href') || '').split('#/player/')[1] || '';
+              var bin = atob(decodeURIComponent(part));
+              if (bin.indexOf('infoHash') !== -1) return 'torrent';
+              if (bin.indexOf('.m3u8') !== -1) return 'hls';
+              if (bin.indexOf('.mp4') !== -1 || bin.indexOf('.webm') !== -1 || bin.indexOf('http') !== -1) return 'direct';
+              return 'other';
+            } catch (e) { return 'unknown'; }
+          }
+          // Smart Multi-Device Picker: المصادر المباشرة تشتغل فورًا في المتصفح بلا محرك تحويل — والتورنتات تتطلب محركًا غير متاح هنا
           var best = avail[0];
           var bestScore = -999;
           for (var i = 0; i < avail.length; i++) {
             var txt = (avail[i].innerText || '').toLowerCase();
             var score = 0;
+            var kind = dodoStreamKind(avail[i]);
+            if (kind === 'direct' || kind === 'hls') score += 200;
+            else if (kind === 'torrent') score -= 200;
             if (txt.indexOf('دودو') !== -1 || txt.indexOf('480p') !== -1 || txt.indexOf('مباشر') !== -1) score += 50;
             if (txt.indexOf('1080p') !== -1 || txt.indexOf('720p') !== -1) score += 30;
             if (/\b(x264|h264|avc|mp4)\b/.test(txt)) score += 20;
@@ -705,6 +719,7 @@
     var arrObserver = null;
     var obsTimer = null;
     var saveBar = null;
+    var editReadyTimer = null;
 
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -873,6 +888,7 @@
     function cleanup() {
       if (arrObserver) { arrObserver.disconnect(); arrObserver = null; }
       clearTimeout(obsTimer);
+      clearTimeout(editReadyTimer);
       dodoGetBoardRows().forEach(unmarkRow);
       if (saveBar) { saveBar.remove(); saveBar = null; }
     }
@@ -887,28 +903,8 @@
       syncVisibility();
     }
 
-    async function enterEditMode() {
-      editing = true;
-      syncVisibility();
-      var keys = dodoBuildAddonKeysFromProfile();
-      if (!keys.length) {
-        showDodoToast('التطبيق قيد التحميل — انتظر ثوانٍ ثم أعد المحاولة');
-        editing = false;
-        syncVisibility();
-        return;
-      }
-      // خريطة العنوان → الإضافة لكل الأقسام الحالية
-      titleInfo = {};
-      dodoGetBoardRows().forEach(function (row) {
-        var title = dodoRowTitle(row);
-        if (!title || titleInfo[title]) return;
-        var m = dodoMatchTitleToAddon(title, keys);
-        titleInfo[title] = m ? { url: m.url, name: m.name } : { url: null, name: '' };
-      });
-      arrangement = dodoGetBoardRows().map(dodoRowTitle).filter(Boolean);
-      originalArrangement = arrangement.slice();
-      applyArrangement();
-
+    function startArrObserver() {
+      if (arrObserver) return;
       // مراقب: كلما أعاد React الرسم أعدنا فرض الترتيب والأدوات
       arrObserver = new MutationObserver(function () {
         if (!editing) return;
@@ -916,7 +912,57 @@
         obsTimer = setTimeout(applyArrangement, 120);
       });
       arrObserver.observe(document.body, { childList: true, subtree: true });
+    }
 
+    function dodoBuildArrangementState() {
+      var keys = dodoBuildAddonKeysFromProfile();
+      var rows = dodoGetBoardRows();
+      if (!keys.length || !rows.length) return false;
+      // خريطة العنوان → الإضافة لكل الأقسام الحالية
+      titleInfo = {};
+      rows.forEach(function (row) {
+        var title = dodoRowTitle(row);
+        if (!title || titleInfo[title]) return;
+        var m = dodoMatchTitleToAddon(title, keys);
+        titleInfo[title] = m ? { url: m.url, name: m.name } : { url: null, name: '' };
+      });
+      if (!arrangement.length) {
+        arrangement = rows.map(dodoRowTitle).filter(Boolean);
+        originalArrangement = arrangement.slice();
+      }
+      return true;
+    }
+
+    async function enterEditMode() {
+      editing = true;
+      syncVisibility();
+      arrangement = [];
+      originalArrangement = [];
+      titleInfo = {};
+      // شريط الحفظ يظهر فورًا بحالة الانتظار — ثم يتفعّل السحب تلقائيًا عند جاهزية التطبيق
+      ensureSaveBar();
+      if (dodoBuildArrangementState()) {
+        startArrObserver();
+        applyArrangement();
+        return;
+      }
+      var tries = 0;
+      clearTimeout(editReadyTimer);
+      var tick = function () {
+        if (!editing) return;
+        if (dodoBuildArrangementState()) {
+          startArrObserver();
+          applyArrangement();
+          return;
+        }
+        tries++;
+        if (tries < 130) editReadyTimer = setTimeout(tick, 700);
+      };
+      editReadyTimer = setTimeout(tick, 700);
+    }
+
+    function ensureSaveBar() {
+      if (saveBar) return;
       saveBar = document.createElement('div');
       saveBar.className = 'dodo-save-bar';
       saveBar.innerHTML =
