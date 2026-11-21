@@ -416,16 +416,34 @@
             var t = a.innerText || '';
             return t.indexOf('المقطع الدعائي') === -1 && t.indexOf('Trailer') === -1;
           });
-          // dodoStreamKind: يفك ترميز رابط المشغل ليعرف نوع المصدر (مباشر/تورنت)
-          function dodoStreamKind(a) {
+          // dodoDecodePlayerHref: يفك ترميز حمولة رابط المشغل (base64 قد يحوي '/' كحرف صالح، وتليه أجزاء اسم اختيارية)
+          function dodoDecodePlayerHref(href) {
             try {
-              var part = (a.getAttribute('href') || '').split('#/player/')[1] || '';
-              var bin = atob(decodeURIComponent(part));
-              if (bin.indexOf('infoHash') !== -1) return 'torrent';
-              if (bin.indexOf('.m3u8') !== -1) return 'hls';
-              if (bin.indexOf('.mp4') !== -1 || bin.indexOf('.webm') !== -1 || bin.indexOf('http') !== -1) return 'direct';
-              return 'other';
-            } catch (e) { return 'unknown'; }
+              var s = decodeURIComponent((href || '').split('#/player/')[1] || '');
+              var parts = s.split('/');
+              var acc = '';
+              for (var i = 0; i < parts.length; i++) {
+                acc = acc ? acc + '/' + parts[i] : parts[i];
+                var b64 = acc.replace(/=+$/, '');
+                while (b64.length % 4) b64 += '=';
+                try {
+                  var bin = atob(b64);
+                  if (bin.indexOf('{') !== -1) return bin;
+                } catch (e) {}
+              }
+            } catch (e) {}
+            return null;
+          }
+          // dodoStreamKind: يعرف نوع المصدر (مباشر/تورنت) ورقم الملف داخل التورنت
+          function dodoStreamKind(a) {
+            var bin = dodoDecodePlayerHref(a.getAttribute('href') || '');
+            if (!bin) return { k: 'unknown', fi: null };
+            var fiM = bin.match(/"fileIdx":(\d+)/);
+            var fi = fiM ? parseInt(fiM[1], 10) : null;
+            if (bin.indexOf('infoHash') !== -1) return { k: 'torrent', fi: fi };
+            if (bin.indexOf('.m3u8') !== -1) return { k: 'hls', fi: null };
+            if (bin.indexOf('.mp4') !== -1 || bin.indexOf('.webm') !== -1 || bin.indexOf('http') !== -1) return { k: 'direct', fi: null };
+            return { k: 'other', fi: null };
           }
           // Smart Multi-Device Picker: المصادر المباشرة تشتغل فورًا في المتصفح بلا محرك تحويل — والتورنتات تتطلب محركًا غير متاح هنا
           var best = avail[0];
@@ -433,9 +451,14 @@
           for (var i = 0; i < avail.length; i++) {
             var txt = (avail[i].innerText || '').toLowerCase();
             var score = 0;
-            var kind = dodoStreamKind(avail[i]);
-            if (kind === 'direct' || kind === 'hls') score += 200;
-            else if (kind === 'torrent') score -= 200;
+            var ki = dodoStreamKind(avail[i]);
+            if (ki.k === 'direct' || ki.k === 'hls') score += 200;
+            else if (ki.k === 'torrent') {
+              score -= 200;
+              // الملف 0 في كثير من التورنتات صورة بوستر وليس الفيديو — عاقبه بشدة
+              if (ki.fi === 0) score -= 60;
+              else if (ki.fi !== null && ki.fi > 0) score += 10;
+            }
             if (txt.indexOf('دودو') !== -1 || txt.indexOf('480p') !== -1 || txt.indexOf('مباشر') !== -1) score += 50;
             if (txt.indexOf('1080p') !== -1 || txt.indexOf('720p') !== -1) score += 30;
             if (/\b(x264|h264|avc|mp4)\b/.test(txt)) score += 20;
