@@ -217,8 +217,8 @@ def load_or_init_config():
     defaults = {
         'app_name': 'دودو ستريم',
         'app_subtitle': 'منصتك الخاصة للأفلام والمسلسلات والكرتون المدبلج',
-        'invite_code': 'DODO-' + secrets.token_hex(3).upper(),
-        'admin_pin': str(1000 + secrets.randbelow(9000)),
+        'invite_code': 'DODO2026',
+        'admin_pin': '2468',
         'privacy_mode': 'internet_only',  # 'always' | 'internet_only' | 'off'
         'secret_key': secrets.token_hex(24),
         'global_extra_addons': [],
@@ -435,6 +435,22 @@ def fetch_json(url, timeout=10, allow_local=False, cache_ttl=0):
 # ---------------------------------------------------------------------------
 # Cartoon Streams & Quality Discovery
 # ---------------------------------------------------------------------------
+def _probe_cartoony_segment(video_id, q):
+    try:
+        req = urllib.request.Request(
+            f'https://pegasus.5387692.xyz/api/hls/{video_id}/{q}/segment_000.jpg',
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://cartoony.net/',
+                'Origin': 'https://cartoony.net/',
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status == 200 and len(r.read(2048)) > 0
+    except Exception:
+        return False
+
+
 def get_cartoony_qualities(video_id):
     with QUALITY_LOCK:
         cached = QUALITY_CACHE.get(video_id)
@@ -469,6 +485,18 @@ def get_cartoony_qualities(video_id):
                 prev = ''
         if not found:
             raise ValueError('no variants')
+        # فحص حي متوازٍ: استبعد الجودات التي مقطعها الأول معطّل عند المصدر نفسه
+        # (يحدث أن يعلن المصدر جودة في قائمته الرئيسية بينما مقاطعها ترجع 502)
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                flags = list(ex.map(lambda q: _probe_cartoony_segment(video_id, q), found))
+            alive = [q for q, ok_q in zip(found, flags) if ok_q]
+            if alive:
+                found = alive
+        except Exception:
+            pass
         found.sort(key=lambda q: (q != '480p', int(q[:-1])))
         with QUALITY_LOCK:
             QUALITY_CACHE[video_id] = (time.time(), found)
@@ -1195,7 +1223,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 html = html.replace('</head>', '<link rel="preconnect" href="https://v3-cinemeta.strem.io" crossorigin><link rel="preconnect" href="https://torrentio.strem.fun" crossorigin><link href="/static/dodo_stremio_overlay.css?v=8" rel="stylesheet"></head>')
                 html = html.replace(
                     '<script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
-                    '<script src="/static/dodo_stremio_bridge.js?v=20"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
+                    '<script src="/static/dodo_stremio_bridge.js?v=22"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
                 )
                 return self.send_bytes(200, html.encode('utf-8'), 'text/html; charset=utf-8', cache='no-store', extra_headers=extra)
             return self.serve_static_file('index.html', cache='no-store', extra_headers=extra)
@@ -1286,36 +1314,41 @@ class DodoHandler(BaseHTTPRequestHandler):
                 return self.send_bytes(200, b'', 'application/vnd.apple.mpegurl', cache='no-store')
             upstream_part = part[:-3] + '.jpg' if part.endswith('.ts') else part
             upstream = f'https://pegasus.5387692.xyz/api/hls/{ident}/{upstream_part}'
-            try:
-                req = urllib.request.Request(
-                    upstream,
-                    headers={
-                        'User-Agent': 'Mozilla/5.0',
-                        'Referer': 'https://cartoony.net/',
-                        'Origin': 'https://cartoony.net',
-                    },
-                )
-                with urllib.request.urlopen(req, timeout=16) as r:
-                    if part.endswith('.m3u8'):
-                        txt = r.read(1_000_000).decode('utf-8').replace('.jpg', '.ts')
-                        # Attach ?sig=... to child playlists & segments so iOS Safari & VLC/Outplayer authenticate seamlessly!
-                        rewritten = []
-                        for ln in txt.splitlines():
-                            s_ln = ln.strip()
-                            if s_ln and not s_ln.startswith('#'):
-                                joiner = '&' if '?' in s_ln else '?'
-                                rewritten.append(f'{s_ln}{joiner}sig={media_sig}')
-                            else:
-                                rewritten.append(ln)
-                        body = ('\n'.join(rewritten) + '\n').encode('utf-8')
-                        return self.send_media_range(body, 'application/vnd.apple.mpegurl')
-                    else:
-                        body = r.read(25 * 1024 * 1024 + 1)
-                        if len(body) > 25 * 1024 * 1024:
-                            return self.send_json(502, {'error': 'المقطع كبير جدًا'})
-                        return self.send_media_range(body, 'video/mp2t')
-            except Exception:
-                return self.send_json(502, {'error': 'تعذر جلب المقطع من المصدر'})
+            # محاولتان: المصدر الخارجي متقلب أحيانًا وتنفع معه إعادة المحاولة
+            for _attempt in range(2):
+                try:
+                    req = urllib.request.Request(
+                        upstream,
+                        headers={
+                            'User-Agent': 'Mozilla/5.0',
+                            'Referer': 'https://cartoony.net/',
+                            'Origin': 'https://cartoony.net',
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=14) as r:
+                        if part.endswith('.m3u8'):
+                            txt = r.read(1_000_000).decode('utf-8').replace('.jpg', '.ts')
+                            # Attach ?sig=... to child playlists & segments so iOS Safari & VLC/Outplayer authenticate seamlessly!
+                            rewritten = []
+                            for ln in txt.splitlines():
+                                s_ln = ln.strip()
+                                if s_ln and not s_ln.startswith('#'):
+                                    joiner = '&' if '?' in s_ln else '?'
+                                    rewritten.append(f'{s_ln}{joiner}sig={media_sig}')
+                                else:
+                                    rewritten.append(ln)
+                            body = ('\n'.join(rewritten) + '\n').encode('utf-8')
+                            return self.send_media_range(body, 'application/vnd.apple.mpegurl')
+                        else:
+                            body = r.read(25 * 1024 * 1024 + 1)
+                            if len(body) > 25 * 1024 * 1024:
+                                return self.send_json(502, {'error': 'المقطع كبير جدًا'})
+                            return self.send_media_range(body, 'video/mp2t')
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception:
+                    continue
+            return self.send_json(502, {'error': 'تعذر جلب المقطع من المصدر'})
 
         # -------------------------------------------------------------------
         # 2. WebVTT Subtitle Converter Endpoint (/api/sub.vtt & /subtitles.vtt)
@@ -1491,11 +1524,106 @@ class DodoHandler(BaseHTTPRequestHandler):
                 return self.send_json(400, {'error': 'مسار يوتيوب غير صالح'})
             try:
                 yt_up = f'http://127.0.0.1:8790/{yt_rel}' + (f'?{parsed.query}' if parsed.query else '')
-                yt_rq = urllib.request.Request(yt_up, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(yt_rq, timeout=25) as r:
+                # خادم 8790 يقبل على مسارات الوسائط نطاقات محدودة صغيرة فقط (~1MB) —
+                # النطاق المفتوح (bytes=X-) أو الكبير (4MB) يفشل 502 من يوتيوب نفسه.
+                # الحل: نجمع الملف في دفعات 1MB متتالية ونقدمه للعميل استجابة قياسية سليمة.
+                YT_SPAN = 1000000
+                yt_client_range = self.headers.get('Range')
+                c_start, c_end = 0, None
+                if yt_client_range:
+                    yt_m_rng = re.match(r'bytes=(\d+)-(\d*)\s*$', yt_client_range)
+                    if yt_m_rng:
+                        c_start = int(yt_m_rng.group(1))
+                        if yt_m_rng.group(2):
+                            c_end = int(yt_m_rng.group(2))
+                first_end = c_start + YT_SPAN - 1 if c_end is None else min(c_end, c_start + YT_SPAN - 1)
+                yt_rq = urllib.request.Request(yt_up, headers={'User-Agent': 'Mozilla/5.0', 'Range': f'bytes={c_start}-{first_end}'})
+                r = None
+                for _att0 in range(3):
+                    try:
+                        r = urllib.request.urlopen(yt_rq, timeout=25)
+                        break
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
+                    except Exception:
+                        time.sleep(1.5)
+                if r is None:
+                    return self.send_json(502, {'error': 'تعذر الجلب من خدمة يوتيوب المحلية (8790)'})
+                yt_ct = r.headers.get('Content-Type', 'application/octet-stream')
+                if 'json' in yt_ct.lower():
+                    # أعد كتابة روابط 127.0.0.1:8790 لتمر عبر السيرفر — فتعمل من أي جهاز (الهاتف عبر النفق)
                     yt_body = r.read(4_000_000)
-                    yt_ct = r.headers.get('Content-Type', 'application/json')
-                    return self.send_bytes(200, yt_body, yt_ct, cache='no-store')
+                    r.close()
+                    try:
+                        yt_body = (
+                            yt_body.decode('utf-8', 'replace')
+                            .replace('http://127.0.0.1:8790/', f'{origin}/addons/youtube/')
+                            .encode('utf-8')
+                        )
+                    except Exception:
+                        pass
+                    return self.send_bytes(r.status, yt_body, yt_ct, cache='no-store')
+                # ميديا (mp4/vtt...): مجموعة دفعات 1MB متتالية + دعم Range للتقديم والتمرير
+                yt_total = 0
+                yt_m_tot = re.match(r'bytes\s+\d+-\d+/(\d+)', r.headers.get('Content-Range') or '')
+                if yt_m_tot:
+                    yt_total = int(yt_m_tot.group(1))
+                if c_end is None:
+                    c_end = yt_total - 1 if yt_total else first_end
+                if yt_client_range:
+                    self.send_response(206)
+                    if yt_total:
+                        self.send_header('Content-Range', f'bytes {c_start}-{c_end}/{yt_total}')
+                        self.send_header('Content-Length', str(c_end - c_start + 1))
+                    else:
+                        self.close_connection = True
+                else:
+                    self.send_response(200)
+                    if yt_total:
+                        self.send_header('Content-Length', str(yt_total))
+                    else:
+                        self.close_connection = True
+                self.send_header('Content-Type', yt_ct)
+                self.send_header('Accept-Ranges', 'bytes')
+                self.add_privacy_headers()
+                self.end_headers()
+                if self.command == 'HEAD':
+                    r.close()
+                    return
+                pos = c_start
+                while r is not None:
+                    try:
+                        while True:
+                            chunk = r.read(65536)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            pos += len(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        r.close()
+                        return
+                    r.close()
+                    if c_end is not None and pos > c_end:
+                        break
+                    if not yt_total or pos >= yt_total:
+                        break
+                    nxt_end = min(pos + YT_SPAN - 1, yt_total - 1, c_end)
+                    if nxt_end < pos:
+                        break
+                    r = None
+                    for _att in range(3):
+                        try:
+                            rq2 = urllib.request.Request(yt_up, headers={'User-Agent': 'Mozilla/5.0', 'Range': f'bytes={pos}-{nxt_end}'})
+                            r = urllib.request.urlopen(rq2, timeout=25)
+                            break
+                        except (BrokenPipeError, ConnectionResetError):
+                            return
+                        except Exception:
+                            time.sleep(1.5)
+                    if r is None:
+                        self.close_connection = True
+                        return
+                return
             except (BrokenPipeError, ConnectionResetError):
                 return
             except Exception as exc:

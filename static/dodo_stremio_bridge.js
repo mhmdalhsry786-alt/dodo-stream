@@ -475,6 +475,8 @@
             if (!bin) return { k: 'unknown', fi: null };
             var fiM = bin.match(/"fileIdx":(\d+)/);
             var fi = fiM ? parseInt(fiM[1], 10) : null;
+            var yt = bin.indexOf('"ytId"') !== -1;
+            if (yt) return { k: 'embed', fi: fi, yt: true };
             if (bin.indexOf('infoHash') !== -1) return { k: 'torrent', fi: fi };
             if (bin.indexOf('.m3u8') !== -1) return { k: 'hls', fi: null };
             if (bin.indexOf('.mp4') !== -1 || bin.indexOf('.webm') !== -1 || bin.indexOf('http') !== -1) return { k: 'direct', fi: null };
@@ -487,6 +489,7 @@
             var txt = (avail[i].innerText || '').toLowerCase();
             var score = 0;
             var ki = dodoStreamKind(avail[i]);
+            if (ki.yt) score += 300; // مشغل يوتيوب المدمج (ytId): الأسرع والأضمن — روابط MP4 المباشرة من يوتيوب مقفولة النطاقات
             if (ki.k === 'direct' || ki.k === 'hls') score += 200;
             else if (ki.k === 'torrent') {
               score -= 200;
@@ -495,6 +498,8 @@
               else if (ki.fi !== null && ki.fi > 0) score += 10;
             }
             if (txt.indexOf('دودو') !== -1 || txt.indexOf('480p') !== -1 || txt.indexOf('مباشر') !== -1) score += 50;
+            // مصادر دودو HLS: 480p موصوفة بأنها «سريعة ومستقرة» — الأفضل للهاتف — فتفضَّل على 720p
+            if (txt.indexOf('دودو') !== -1 && txt.indexOf('480p') !== -1) score += 40;
             if (txt.indexOf('1080p') !== -1 || txt.indexOf('720p') !== -1) score += 30;
             if (/\b(x264|h264|avc|mp4)\b/.test(txt)) score += 20;
             if (/\b(4k|2160p|remux|dv|dolby vision)\b/.test(txt)) score -= 40;
@@ -533,7 +538,7 @@
         addon: { transportUrl: data.transportUrl, manifest: data.manifest },
       });
       if (makeGlobal) {
-        var pin = window.prompt('أدخل رمز المالك لتعميم الإضافة لجميع الأصدقاء :') || '';
+        var pin = window.prompt('أدخل رمز المالك لتعميم الإضافة لجميع الأصدقاء (الافتراضي 2468):') || '';
         if (pin.trim()) {
           var ir = await origFetch(ORIGIN + '/api/admin/inspect', {
             method: 'POST',
