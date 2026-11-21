@@ -203,82 +203,6 @@
       } catch (e) {}
     }
 
-    await applySavedAddonOrder();
-  }
-
-  // إعادة ترتيب الإضافات إلى ترتيب معين — UninstallAddon يستقبل كائن الإضافة كاملًا (كما يفعل التطبيق نفسه)
-  async function reorderAddonsTo(order) {
-    var ctx = await self.getState('ctx');
-    var addons = (ctx && ctx.profile && Array.isArray(ctx.profile.addons)) ? ctx.profile.addons : [];
-    var byUrl = {};
-    var movable = [];
-    for (var i = 0; i < addons.length; i++) {
-      var a = addons[i];
-      if (a && a.transportUrl && a.manifest && !(a.flags && (a.flags.protected || a.flags.official))) {
-        byUrl[a.transportUrl] = a;
-        movable.push(a);
-      }
-    }
-    if (movable.length < 2) return 0;
-    var seq = [];
-    for (var j = 0; j < order.length; j++) {
-      if (byUrl[order[j]]) {
-        seq.push(byUrl[order[j]]);
-        delete byUrl[order[j]];
-      }
-    }
-    // ما لم يُذكر في الترتيب المطلوب يبقى في النهاية بترتيبه الحالي
-    for (var i2 = 0; i2 < movable.length; i2++) {
-      if (seq.indexOf(movable[i2]) === -1) seq.push(movable[i2]);
-    }
-    var same = true;
-    for (var s = 0; s < seq.length; s++) {
-      if (seq[s] !== movable[s]) { same = false; break; }
-    }
-    if (same) return 0;
-    for (var k = 0; k < movable.length; k++) {
-      try {
-        await self.dispatch(
-          { action: 'Ctx', args: { action: 'UninstallAddon', args: movable[k] } },
-          'ctx',
-          '#/'
-        );
-      } catch (e) {}
-    }
-    for (var m = 0; m < seq.length; m++) {
-      var it = seq[m];
-      try {
-        await self.dispatch(
-          {
-            action: 'Ctx',
-            args: {
-              action: 'InstallAddon',
-              args: {
-                transportUrl: it.transportUrl,
-                manifest: it.manifest,
-                flags: it.flags && typeof it.flags === 'object' ? it.flags : { official: false, protected: false }
-              }
-            }
-          },
-          'ctx',
-          '#/'
-        );
-      } catch (e2) {}
-    }
-    return seq.length;
-  }
-
-  // يطبّق ترتيب المستخدم المحفوظ فقط (بلا أي فرض تلقائي) — 'dodo_addon_order_v1'
-  async function applySavedAddonOrder() {
-    if (typeof self.getState !== 'function' || typeof self.dispatch !== 'function') return;
-    if (typeof self.local_storage_get_item !== 'function') return;
-    try {
-      var raw = await self.local_storage_get_item('dodo_addon_order_v1');
-      if (!raw) return;
-      var order = JSON.parse(raw);
-      if (!Array.isArray(order) || order.length < 2) return;
-      await reorderAddonsTo(order);
-    } catch (e) {}
   }
 
   self.addEventListener('message', function (ev) {
@@ -314,42 +238,6 @@
       } catch (err) {
         self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
       }
-    } else if (d.__dodoCmd === 'getAddons') {
-      (async function () {
-        try {
-          var ctx = await self.getState('ctx');
-          var addons = (ctx && ctx.profile && Array.isArray(ctx.profile.addons)) ? ctx.profile.addons : [];
-          var list = [];
-          for (var i = 0; i < addons.length; i++) {
-            var a = addons[i] || {};
-            if (!a.transportUrl) continue;
-            list.push({
-              transportUrl: a.transportUrl,
-              id: (a.manifest && a.manifest.id) || a.transportUrl,
-              name: (a.manifest && a.manifest.name) || a.transportUrl,
-              types: (a.manifest && a.manifest.types) || [],
-              catalogs: (a.manifest && Array.isArray(a.manifest.catalogs))
-                ? a.manifest.catalogs.map(function (c) {
-                    return { id: c && c.id, name: (c && c.name) || '', type: (c && c.type) || '' };
-                  })
-                : [],
-              protected: !!(a.flags && (a.flags.protected || a.flags.official))
-            });
-          }
-          self.postMessage({ __dodoReply: d.reqId, ok: true, addons: list });
-        } catch (err) {
-          self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
-        }
-      })();
-    } else if (d.__dodoCmd === 'reorderAddons' && Array.isArray(d.order)) {
-      (async function () {
-        try {
-          var count = await reorderAddonsTo(d.order);
-          self.postMessage({ __dodoReply: d.reqId, ok: true, count: count });
-        } catch (err) {
-          self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
-        }
-      })();
     }
   });
 

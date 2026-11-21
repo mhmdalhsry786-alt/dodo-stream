@@ -572,26 +572,107 @@
     });
   }
 
-  // 7b. Section Arranger (↕ ترتيب أقسام الهوم بالسحب) — زر صغير يظهر في الصفحة الرئيسية فقط
+  // 7b. Section Arranger — سحب أقسام الصفحة الرئيسية في مكانها مباشرة
+  // بنية صلبة: ترتيب منطقي في مصفوفة + مراقب طفريات يعيد فرضه كلما أعاد React الرسم
   function dodoIsHomeRoute() {
     var h = window.location.hash || '';
     return h === '' || h === '#' || h === '#/' || h.indexOf('#/?') === 0;
   }
 
-  var DODO_CAT_AR = { popular: 'رائج', top: 'رائج', new: 'جديد', year: 'جديد', featured: 'مميز', imdbrating: 'مميز' };
-  var DODO_TYPE_AR = { movie: 'أفلام', series: 'مسلسلات', channel: 'قنوات', tv: 'تلفاز' };
+  var DODO_ARRANGER_CSS =
+    '[class*="board-row"].dodo-drag-section{outline:2px dashed rgba(124,58,237,0.75);outline-offset:-2px;border-radius:12px;cursor:grab;position:relative;}' +
+    '[class*="board-row"].dodo-drag-section:hover{outline-color:#a78bfa;background:rgba(124,58,237,0.06);}' +
+    '[class*="board-row"].dodo-dragging{opacity:0.35;}' +
+    '[class*="board-row"].dodo-fixed-section{opacity:0.45;position:relative;}' +
+    '.dodo-sec-nav{position:absolute;top:8px;inset-inline-end:10px;z-index:50;display:flex;gap:6px;}' +
+    '.dodo-sec-nav button{width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(30,27,45,0.92);color:#fff;font-size:16px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,0.35);}' +
+    '.dodo-sec-nav button:active{background:#7c3aed;}' +
+    '.dodo-sec-tag{position:absolute;top:10px;inset-inline-start:12px;z-index:50;font:600 11px inherit;color:#c4b5fd;background:rgba(30,27,45,0.9);border:1px solid rgba(124,58,237,0.5);border-radius:999px;padding:4px 12px;pointer-events:none;}' +
+    '.dodo-save-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:2147483600;display:flex;align-items:center;gap:10px;background:rgba(15,12,28,0.96);border:1px solid rgba(124,58,237,0.55);border-radius:999px;padding:10px 12px 10px 20px;box-shadow:0 8px 30px rgba(0,0,0,0.55);font:500 13px inherit;color:#e2e8f0;}' +
+    '.dodo-save-bar button{border:0;border-radius:999px;padding:9px 18px;font:600 13px inherit;cursor:pointer;}' +
+    '.dodo-save-bar .dodo-save-btn{background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;}' +
+    '.dodo-save-bar .dodo-cancel-btn{background:rgba(255,255,255,0.09);color:#cbd5e1;}';
 
-  function dodoSuggestRank(a) {
-    var url = (a.transportUrl || '').toLowerCase();
-    var id = (a.id || '').toLowerCase();
-    if (id.indexOf('cinemeta') !== -1 || url.indexOf('cinemeta') !== -1) return 1;
-    if (id.indexOf('netflix') !== -1 || url.indexOf('netflix') !== -1) return 2;
-    if (url.indexOf('/addons/cartoons') !== -1 || id.indexOf('cartoon') !== -1) return 4;
-    return 3;
+  function dodoArrangerStyle() {
+    if (document.getElementById('dodo-arranger-style')) return;
+    var st = document.createElement('style');
+    st.id = 'dodo-arranger-style';
+    st.textContent = DODO_ARRANGER_CSS;
+    document.head.appendChild(st);
+  }
+
+  function dodoGetBoardRows() {
+    var tEl = document.querySelector('[class*="title-container"]');
+    if (!tEl) return [];
+    var row = tEl;
+    while (row && String(row.className).indexOf('board-row') === -1) row = row.parentElement;
+    if (!row || !row.parentElement) return [];
+    var cont = row.parentElement;
+    return Array.prototype.filter.call(cont.children, function (ch) {
+      return String(ch.className).indexOf('board-row') !== -1;
+    });
+  }
+
+  function dodoRowTitle(row) {
+    var tEl = row.querySelector('[class*="title-container"]');
+    return tEl ? String(tEl.textContent || '').trim() : '';
+  }
+
+  // مطابقة قسم (بعنوانه الظاهر) إلى إضافته — من ملف profile المخزن مباشرة
+  function dodoBuildAddonKeysFromProfile() {
+    var CAT_AR = { popular: 'رائج', top: 'رائج', featured: 'مميز', imdbrating: 'مميز', new: 'جديد', year: 'جديد' };
+    var ADDON_AR = {
+      'org.stremio.pubdomainmovies': 'افلام عامة',
+      'com.linvo.pubdomainmovies': 'افلام عامة',
+      'com.linvo.cinemeta': 'رائج'
+    };
+    var norm = function (s) {
+      return String(s || '').toLowerCase().replace(/[\s_]+/g, ' ').replace(/^ال/, '').trim();
+    };
+    var prof = null;
+    try { prof = JSON.parse(localStorage.getItem('profile') || 'null'); } catch (e) {}
+    var addons = prof && Array.isArray(prof.addons) ? prof.addons : [];
+    return addons.map(function (a) {
+      var mf = a.manifest || {};
+      var set = {};
+      (mf.catalogs || []).forEach(function (c) {
+        if (c.name) set[norm(c.name)] = true;
+        if (c.id) {
+          set[norm(c.id)] = true;
+          var low = String(c.id).toLowerCase();
+          if (CAT_AR[low]) set[norm(CAT_AR[low])] = true;
+        }
+        if (c.name && CAT_AR[norm(c.name)]) set[norm(CAT_AR[norm(c.name)])] = true;
+      });
+      if (mf.name) set[norm(mf.name)] = true;
+      if (mf.id && ADDON_AR[mf.id]) set[norm(ADDON_AR[mf.id])] = true;
+      return { url: a.transportUrl, name: mf.name || a.transportUrl, set: set };
+    });
+  }
+
+  function dodoMatchTitleToAddon(title, keys) {
+    if (!title) return null;
+    var norm = function (s) {
+      return String(s || '').toLowerCase().replace(/[\s_]+/g, ' ').replace(/^ال/, '').trim();
+    };
+    var np = norm(String(title).split(' - ')[0]);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].set[np]) return keys[i];
+    }
+    return null;
   }
 
   function mountDodoSectionArranger() {
     if (document.getElementById('dodo-arrange-btn')) return;
+    dodoArrangerStyle();
+
+    var editing = false;
+    var arrangement = [];        // العناوين بالترتيب المنطقي الحالي
+    var originalArrangement = [];
+    var titleInfo = {};          // عنوان → {url, name}
+    var arrObserver = null;
+    var obsTimer = null;
+    var saveBar = null;
 
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -600,7 +681,7 @@
     btn.textContent = '↕';
     btn.style.cssText =
       'position:fixed;bottom:18px;inset-inline-end:18px;z-index:2147483000;display:none;' +
-      'width:44px;height:44px;border:0;border-radius:50%;cursor:pointer;' +
+      'width:46px;height:46px;border:0;border-radius:50%;cursor:pointer;' +
       'background:rgba(124,58,237,0.8);color:#fff;font-size:20px;line-height:1;' +
       'box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0.5;transition:opacity .15s;';
     btn.addEventListener('mouseenter', function () { btn.style.opacity = '1'; });
@@ -608,147 +689,239 @@
     document.body.appendChild(btn);
 
     function syncVisibility() {
-      btn.style.display = dodoIsHomeRoute() ? 'block' : 'none';
+      btn.style.display = !editing && dodoIsHomeRoute() ? 'block' : 'none';
     }
     window.addEventListener('hashchange', syncVisibility);
     syncVisibility();
 
-    btn.addEventListener('click', async function () {
-      var modal = document.createElement('div');
-      modal.className = 'dodo-modal-backdrop dodo-hidden';
-      modal.innerHTML =
-        '<div class="dodo-modal-card" style="max-width:540px;max-height:84vh;display:flex;flex-direction:column;">' +
-        '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
-        '    <h3 style="margin:0;">↕ ترتيب أقسام الرئيسية</h3>' +
-        '    <button type="button" id="dodo-ar-close" class="dodo-btn-ghost">✕ إغلاق</button>' +
-        '  </div>' +
-        '  <p style="margin:0 0 10px;color:#94a3b8;font-size:12.5px;line-height:1.6;">' +
-        '    <strong>اسحب كل سلايد إلى موضعه</strong> أو استخدم ⬆⬇ — السطر الأول يظهر أول قسم في الصفحة الرئيسية، والأخير يظهر آخرًا.' +
-        '  </p>' +
-        '  <div style="display:flex;gap:8px;margin-bottom:10px;">' +
-        '    <button type="button" id="dodo-ar-suggest" class="dodo-btn-ghost" style="flex:1;">✨ الترتيب المقترح (رائج ← نتفلكس ← البقية ← كرتون)</button>' +
-        '  </div>' +
-        '  <div id="dodo-ar-list" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;padding:2px;"></div>' +
-        '  <div style="display:flex;gap:8px;margin-top:12px;">' +
-        '    <button type="button" id="dodo-ar-save" class="dodo-btn-primary" style="flex:1;">💾 حفظ الترتيب</button>' +
-        '    <button type="button" id="dodo-ar-reset" class="dodo-btn-ghost">↺ إلغاء المحفوظ</button>' +
-        '  </div>' +
-        '</div>';
-      document.body.appendChild(modal);
+    function unmarkRow(row) {
+      Array.prototype.slice.call(row.querySelectorAll('.dodo-sec-nav, .dodo-sec-tag')).forEach(function (el) { el.remove(); });
+      row.classList.remove('dodo-drag-section', 'dodo-fixed-section', 'dodo-dragging');
+      row.removeAttribute('data-dodo-addon');
+      row.removeAttribute('data-dodo-title');
+      row.removeAttribute('draggable');
+    }
 
-      var listEl = modal.querySelector('#dodo-ar-list');
-      var saveBtn = modal.querySelector('#dodo-ar-save');
-      var items = [];
-      var dragging = null;
-
-      function chipText(c) {
-        var catAr = DODO_CAT_AR[String(c.id || '').toLowerCase()] || c.name || c.id || '';
-        var typeAr = DODO_TYPE_AR[String(c.type || '').toLowerCase()] || c.type || '';
-        if (catAr && typeAr) return catAr + ' · ' + typeAr;
-        return catAr || typeAr || '';
+    function markRow(row) {
+      var title = dodoRowTitle(row);
+      if (!title) {
+        row.classList.add('dodo-fixed-section');
+        return null;
       }
-
-      function render() {
-        listEl.innerHTML = '';
-        items.forEach(function (it, idx) {
-          var row = document.createElement('div');
-          row.draggable = true;
-          row.style.cssText =
-            'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;' +
-            'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:grab;';
-          var chips = '';
-          var cats = (it.catalogs || []).slice(0, 4);
-          for (var c = 0; c < cats.length; c++) {
-            var ct = chipText(cats[c]);
-            if (ct) chips += '<span style="font-size:11px;background:rgba(56,189,248,0.14);color:#7dd3fc;border-radius:999px;padding:2px 9px;white-space:nowrap;">' + ct.replace(/</g, '&lt;') + '</span>';
-          }
-          row.innerHTML =
-            '<span style="min-width:22px;text-align:center;color:#64748b;font-size:13px;">' + (idx + 1) + '</span>' +
-            '<span style="flex:1;min-width:0;">' +
-            '<span style="display:block;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + it.name.replace(/</g, '&lt;') + '</span>' +
-            (chips ? '<span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">' + chips + '</span>' : '') +
-            '</span>';
-          var mkArrow = function (dir) {
-            var b = document.createElement('button');
-            b.type = 'button';
-            b.textContent = dir === 'up' ? '⬆' : '⬇';
-            var disabled = dir === 'up' ? idx === 0 : idx === items.length - 1;
-            b.style.cssText =
-              'width:34px;height:34px;border-radius:9px;border:1px solid rgba(255,255,255,0.12);' +
-              'background:rgba(255,255,255,0.06);color:#e2e8f0;font-size:14px;cursor:pointer;' +
-              (disabled ? 'opacity:0.3;cursor:default;' : '');
-            b.addEventListener('click', function () {
-              if (disabled) return;
-              if (dir === 'up' && idx > 0) items.splice(idx - 1, 0, items.splice(idx, 1)[0]);
-              if (dir === 'down' && idx < items.length - 1) items.splice(idx + 1, 0, items.splice(idx, 1)[0]);
-              render();
-            });
-            return b;
-          };
-          row.appendChild(mkArrow('up'));
-          row.appendChild(mkArrow('down'));
-
-          row.addEventListener('dragstart', function () { dragging = idx; row.style.opacity = '0.4'; });
-          row.addEventListener('dragend', function () { row.style.opacity = '1'; dragging = null; });
-          row.addEventListener('dragover', function (ev) { ev.preventDefault(); });
-          row.addEventListener('drop', function (ev) {
-            ev.preventDefault();
-            if (dragging === null || dragging === idx) return;
-            var moved = items.splice(dragging, 1)[0];
-            items.splice(idx, 0, moved);
-            dragging = null;
-            render();
-          });
-
-          listEl.appendChild(row);
+      var info = titleInfo[title] || null;
+      if (!info || !info.url) {
+        row.classList.add('dodo-fixed-section');
+        row.setAttribute('data-dodo-title', title);
+        return null;
+      }
+      row.setAttribute('data-dodo-addon', info.url);
+      row.setAttribute('data-dodo-title', title);
+      row.classList.add('dodo-drag-section');
+      row.setAttribute('draggable', 'true');
+      if (!row.querySelector('.dodo-sec-tag')) {
+        var tag = document.createElement('div');
+        tag.className = 'dodo-sec-tag';
+        tag.textContent = '↕ ' + (info.name || '');
+        row.appendChild(tag);
+      }
+      if (!row.querySelector('.dodo-sec-nav')) {
+        var nav = document.createElement('div');
+        nav.className = 'dodo-sec-nav';
+        function mkArrow(dir) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = dir === 'up' ? '⬆' : '⬇';
+          b.addEventListener('click', function () { moveTitle(title, dir); });
+          return b;
+        }
+        nav.appendChild(mkArrow('up'));
+        nav.appendChild(mkArrow('down'));
+        row.appendChild(nav);
+      }
+      if (!row.getAttribute('data-dodo-dnd')) {
+        row.setAttribute('data-dodo-dnd', '1');
+        row.addEventListener('dragstart', function () { row.classList.add('dodo-dragging'); });
+        row.addEventListener('dragend', function () { row.classList.remove('dodo-dragging'); });
+        row.addEventListener('dragover', function (ev) { ev.preventDefault(); });
+        row.addEventListener('drop', function (ev) {
+          ev.preventDefault();
+          var cont = row.parentElement;
+          if (!cont) return;
+          var dragged = cont.querySelector('.dodo-dragging');
+          if (!dragged || dragged === row) return;
+          var fromTitle = dragged.getAttribute('data-dodo-title');
+          var toTitle = row.getAttribute('data-dodo-title');
+          if (fromTitle && toTitle && fromTitle !== toTitle) moveTitleBefore(fromTitle, toTitle);
         });
       }
+      return title;
+    }
 
-      modal.querySelector('#dodo-ar-close').addEventListener('click', function () { modal.remove(); });
-      modal.addEventListener('click', function (ev) { if (ev.target === modal) modal.remove(); });
+    function moveTitle(title, dir) {
+      var i = arrangement.indexOf(title);
+      var j = dir === 'up' ? i - 1 : i + 1;
+      if (i === -1 || j < 0 || j >= arrangement.length) return;
+      arrangement.splice(j, 0, arrangement.splice(i, 1)[0]);
+      applyArrangement();
+      scrollToTitle(title);
+    }
 
-      modal.querySelector('#dodo-ar-suggest').addEventListener('click', function () {
-        items = items.slice().sort(function (x, y) { return dodoSuggestRank(x) - dodoSuggestRank(y); });
-        render();
+    function moveTitleBefore(fromTitle, toTitle) {
+      var i = arrangement.indexOf(fromTitle);
+      var j = arrangement.indexOf(toTitle);
+      if (i === -1 || j === -1 || i === j) return;
+      arrangement.splice(i, 1);
+      j = arrangement.indexOf(toTitle);
+      arrangement.splice(j, 0, fromTitle);
+      applyArrangement();
+    }
+
+    function scrollToTitle(title) {
+      var rows = dodoGetBoardRows();
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-dodo-title') === title) {
+          try { rows[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+          return;
+        }
+      }
+    }
+
+    // يعيد فرض الترتيب والأدوات على DOM الحالي (يُستدعى عند كل طفرة أثناء التحرير)
+    function applyArrangement() {
+      var rows = dodoGetBoardRows();
+      if (!rows.length) return;
+      var cont = rows[0].parentElement;
+      // 1) تأكد أن كل صف معلَّم وهويته صحيحة
+      rows.forEach(function (row) {
+        var title = dodoRowTitle(row);
+        var marked = row.getAttribute('data-dodo-title');
+        if (!marked || marked !== title || (titleInfo[title] && !row.querySelector('.dodo-sec-nav'))) {
+          unmarkRow(row);
+          markRow(row);
+        }
+        if (title && arrangement.indexOf(title) === -1) arrangement.push(title);
       });
-
-      modal.querySelector('#dodo-ar-reset').addEventListener('click', function () {
-        try { localStorage.removeItem('dodo_addon_order_v1'); } catch (e) {}
-        showDodoToast('↺ أُلغي الترتيب المحفوظ — الترتيب الحالي يبقى كما هو');
+      // 2) أزل من الترتيب ما لم يعد موجودًا
+      arrangement = arrangement.filter(function (title) {
+        return rows.some(function (row) { return row.getAttribute('data-dodo-title') === title || dodoRowTitle(row) === title; });
       });
+      // 3) رتب عقد DOM حسب الترتيب المنطقي
+      arrangement.forEach(function (title) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].getAttribute('data-dodo-title') === title || dodoRowTitle(rows[i]) === title) {
+            cont.appendChild(rows[i]);
+            return;
+          }
+        }
+      });
+    }
 
-      saveBtn.addEventListener('click', async function () {
-        saveBtn.disabled = true;
-        saveBtn.textContent = '⏳ جارٍ التطبيق...';
+    function cleanup() {
+      if (arrObserver) { arrObserver.disconnect(); arrObserver = null; }
+      clearTimeout(obsTimer);
+      dodoGetBoardRows().forEach(unmarkRow);
+      if (saveBar) { saveBar.remove(); saveBar = null; }
+    }
+
+    function exitEditMode(restoreOriginal) {
+      editing = false;
+      if (restoreOriginal && originalArrangement.length) {
+        arrangement = originalArrangement.slice();
+        applyArrangement();
+      }
+      cleanup();
+      syncVisibility();
+    }
+
+    async function enterEditMode() {
+      editing = true;
+      syncVisibility();
+      var keys = dodoBuildAddonKeysFromProfile();
+      if (!keys.length) {
+        showDodoToast('التطبيق قيد التحميل — انتظر ثوانٍ ثم أعد المحاولة');
+        editing = false;
+        syncVisibility();
+        return;
+      }
+      // خريطة العنوان → الإضافة لكل الأقسام الحالية
+      titleInfo = {};
+      dodoGetBoardRows().forEach(function (row) {
+        var title = dodoRowTitle(row);
+        if (!title || titleInfo[title]) return;
+        var m = dodoMatchTitleToAddon(title, keys);
+        titleInfo[title] = m ? { url: m.url, name: m.name } : { url: null, name: '' };
+      });
+      arrangement = dodoGetBoardRows().map(dodoRowTitle).filter(Boolean);
+      originalArrangement = arrangement.slice();
+      applyArrangement();
+
+      // مراقب: كلما أعاد React الرسم أعدنا فرض الترتيب والأدوات
+      arrObserver = new MutationObserver(function () {
+        if (!editing) return;
+        clearTimeout(obsTimer);
+        obsTimer = setTimeout(applyArrangement, 120);
+      });
+      arrObserver.observe(document.body, { childList: true, subtree: true });
+
+      saveBar = document.createElement('div');
+      saveBar.className = 'dodo-save-bar';
+      saveBar.innerHTML =
+        '<span>اسحب كل قسم إلى موضعه (أو ⬆⬇)</span>' +
+        '<button type="button" class="dodo-save-btn">💾 حفظ الترتيب</button>' +
+        '<button type="button" class="dodo-cancel-btn">✕ إلغاء</button>';
+      document.body.appendChild(saveBar);
+      saveBar.querySelector('.dodo-save-btn').addEventListener('click', function () {
+        var sb = saveBar.querySelector('.dodo-save-btn');
+        sb.disabled = true;
+        sb.textContent = '⏳ جارٍ الحفظ...';
         try {
-          var order = items.map(function (it) { return it.transportUrl; });
-          try { localStorage.setItem('dodo_addon_order_v1', JSON.stringify(order)); } catch (e) {}
-          await callCoreWorker('reorderAddons', { order: order });
-          showDodoToast('✅ تم حفظ ترتيبك — سيظهر نفسه في كل مرة تفتح التطبيق');
-          modal.remove();
+          // رتبب الإضافات بحسب أول ظهور لأقسامها
+          var urls = [];
+          arrangement.forEach(function (title) {
+            var info = titleInfo[title];
+            if (info && info.url && urls.indexOf(info.url) === -1) urls.push(info.url);
+          });
+          if (urls.length < 2) throw new Error('لم أتعرف على أقسام كافية');
+          var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+          if (!prof || !Array.isArray(prof.addons) || prof.addons.length < 2) throw new Error('ملف الإعداد غير جاهز');
+          var seen = {};
+          var ordered = [];
+          urls.forEach(function (u) {
+            if (seen[u]) return;
+            for (var i = 0; i < prof.addons.length; i++) {
+              if (prof.addons[i].transportUrl === u) { seen[u] = true; ordered.push(prof.addons[i]); break; }
+            }
+          });
+          prof.addons.forEach(function (a) {
+            if (!seen[a.transportUrl]) { seen[a.transportUrl] = true; ordered.push(a); }
+          });
+          var changed = false;
+          for (var c = 0; c < ordered.length; c++) {
+            if (ordered[c] !== prof.addons[c]) { changed = true; break; }
+          }
+          if (!changed) {
+            showDodoToast('لم يتغير ترتيب الإضافات');
+            exitEditMode(false);
+            return;
+          }
+          prof.addons = ordered;
+          localStorage.setItem('profile', JSON.stringify(prof));
+          showDodoToast('✅ تم حفظ ترتيبك — جارٍ إعادة التحميل...');
+          setTimeout(function () { window.location.reload(); }, 900);
         } catch (err) {
-          saveBtn.disabled = false;
-          saveBtn.textContent = '💾 حفظ الترتيب';
+          sb.disabled = false;
+          sb.textContent = '💾 حفظ الترتيب';
           showDodoToast('تعذر الحفظ: ' + (err && err.message ? err.message : 'حاول مجددًا'));
         }
       });
+      saveBar.querySelector('.dodo-cancel-btn').addEventListener('click', function () {
+        exitEditMode(true);
+      });
+    }
 
-      modal.classList.remove('dodo-hidden');
-      listEl.innerHTML =
-        '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:20px 0;">⏳ جارٍ قراءة الأقسام...</p>';
-      try {
-        var addonsRes = await callCoreWorker('getAddons', {});
-        items = (addonsRes && Array.isArray(addonsRes.addons)) ? addonsRes.addons.slice() : [];
-      } catch (err) {
-        items = [];
-      }
-      if (!items.length) {
-        listEl.innerHTML =
-          '<p style="color:#fb7185;font-size:13px;text-align:center;padding:20px 0;">المحرك قيد التحميل — أغلق وافتح مرة أخرى بعد ثوانٍ.</p>';
-        saveBtn.disabled = true;
-        return;
-      }
-      render();
+    btn.addEventListener('click', function () {
+      if (editing) exitEditMode(true);
+      else enterEditMode();
     });
   }
 
