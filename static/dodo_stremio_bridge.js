@@ -49,6 +49,41 @@
   }
   dodoApplySavedOrderToProfile();
 
+  // 🔧 مُصلِح روابط الإضافات الذاتية: أي إضافة على مساراتنا (كرتون/ترجمة/يوتيوب) تُعاد كتابتها
+  //    بأصل الصفحة الحالي — فتنصلح تلقائيًا الإضافات المثبتة برابط نفق قديم أو 127.0.0.1
+  //    وتعمل من أي جهاز، مع إزالة التكرارات الناتجة عن إعادة التثبيت.
+  function dodoHealAddonUrls() {
+    try {
+      var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+      if (!prof || !Array.isArray(prof.addons) || !prof.addons.length) return;
+      var changed = false;
+      var seen = {};
+      var out = [];
+      prof.addons.forEach(function (a) {
+        if (!a || !a.transportUrl) { out.push(a); return; }
+        var u = a.transportUrl;
+        var m = u.match(/^https?:\/\/[^\/]+(\/addons\/(?:cartoons|subtitles|youtube)\/manifest\.json)$/i);
+        var ym = u.match(/^https?:\/\/127\.0\.0\.1:8790\/manifest\.json(\?.*)?$/i);
+        var path = null;
+        if (m) path = m[1];
+        else if (ym) path = '/addons/youtube/manifest.json';
+        if (path) {
+          var fixed = ORIGIN + path;
+          if (u !== fixed) { a.transportUrl = fixed; changed = true; }
+        }
+        var key = ((a.manifest && a.manifest.id) || '') + '|' + a.transportUrl;
+        if (seen[key]) { changed = true; return; }
+        seen[key] = true;
+        out.push(a);
+      });
+      if (changed && out.length) {
+        prof.addons = out;
+        localStorage.setItem('profile', JSON.stringify(prof));
+      }
+    } catch (e) {}
+  }
+  dodoHealAddonUrls();
+
   function getInvite() {
     try {
       return localStorage.getItem(KEY_INVITE) || '';

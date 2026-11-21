@@ -799,7 +799,7 @@ def get_default_addons(base_origin):
                 'id': ym.get('id', 'org.local.youtube.ar'),
                 'name': ym.get('name', 'يوتيوب — بحث وتشغيل فوري'),
                 'description': ym.get('description', 'إضافة يوتيوب المحلية من جهازك.'),
-                'transportUrl': 'http://127.0.0.1:8790/manifest.json',
+                'transportUrl': f'{base_origin}/addons/youtube/manifest.json',
                 'builtIn': True,
                 'manifest': ym,
             }
@@ -1195,7 +1195,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 html = html.replace('</head>', '<link rel="preconnect" href="https://v3-cinemeta.strem.io" crossorigin><link rel="preconnect" href="https://torrentio.strem.fun" crossorigin><link href="/static/dodo_stremio_overlay.css?v=8" rel="stylesheet"></head>')
                 html = html.replace(
                     '<script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
-                    '<script src="/static/dodo_stremio_bridge.js?v=19"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
+                    '<script src="/static/dodo_stremio_bridge.js?v=20"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
                 )
                 return self.send_bytes(200, html.encode('utf-8'), 'text/html; charset=utf-8', cache='no-store', extra_headers=extra)
             return self.serve_static_file('index.html', cache='no-store', extra_headers=extra)
@@ -1480,6 +1480,26 @@ class DodoHandler(BaseHTTPRequestHandler):
         if raw_path.startswith('/addons/cartoons/'):
             rel = raw_path[len('/addons/cartoons/') :]
             return self.handle_cartoon_addon(rel, origin, media_sig)
+
+        # -------------------------------------------------------------------
+        # 5a-bis. Local YouTube Addon Proxy (/addons/youtube/... → 127.0.0.1:8790)
+        #         يجعل إضافة يوتيوب المحلية تعمل من الهاتف عبر النفق أيضًا
+        # -------------------------------------------------------------------
+        if raw_path.startswith('/addons/youtube/'):
+            yt_rel = raw_path[len('/addons/youtube/'):]
+            if not yt_rel or '..' in yt_rel:
+                return self.send_json(400, {'error': 'مسار يوتيوب غير صالح'})
+            try:
+                yt_up = f'http://127.0.0.1:8790/{yt_rel}' + (f'?{parsed.query}' if parsed.query else '')
+                yt_rq = urllib.request.Request(yt_up, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(yt_rq, timeout=25) as r:
+                    yt_body = r.read(4_000_000)
+                    yt_ct = r.headers.get('Content-Type', 'application/json')
+                    return self.send_bytes(200, yt_body, yt_ct, cache='no-store')
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception as exc:
+                return self.send_json(502, {'error': f'خدمة يوتيوب المحلية (8790) غير مشغلة على جهاز المالك: {str(exc)[:80]}'})
 
         # -------------------------------------------------------------------
         # 5a. Universal Live FFmpeg HLS Transcoder (/api/universal-hls/<sid>/<part>)
