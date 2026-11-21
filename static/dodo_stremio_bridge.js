@@ -472,14 +472,7 @@
   }
 
   function mountDodoQuickTools() {
-    if (document.getElementById('dodo-quick-fab')) return;
-    var fab = document.createElement('button');
-    fab.id = 'dodo-quick-fab';
-    fab.type = 'button';
-    fab.title = 'أدوات دودو ستريم: تشغيل أي رابط أو صيغة / ملف محلي / مشاركة وخصوصية';
-    fab.innerHTML = '<span>⚡</span><span>رابط / أدوات دودو</span>';
-    document.body.appendChild(fab);
-
+    if (document.getElementById('dodo-tools-modal')) return;
     var modal = document.createElement('div');
     modal.id = 'dodo-tools-modal';
     modal.className = 'dodo-modal-backdrop dodo-hidden';
@@ -520,15 +513,6 @@
       '  </div>' +
       '</div>';
     document.body.appendChild(modal);
-
-    fab.addEventListener('click', function () {
-      var curShare = ORIGIN + (getInvite() ? '/?invite=' + encodeURIComponent(getInvite()) : '/');
-      document.getElementById('dodo-share-input').value = curShare;
-      modal.classList.remove('dodo-hidden');
-      setTimeout(function () {
-        document.getElementById('dodo-any-link-input').focus();
-      }, 60);
-    });
 
     document.getElementById('dodo-close-tools').addEventListener('click', function () {
       modal.classList.add('dodo-hidden');
