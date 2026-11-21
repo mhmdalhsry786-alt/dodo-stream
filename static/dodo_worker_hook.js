@@ -237,6 +237,79 @@
       } catch (err) {
         self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
       }
+    } else if (d.__dodoCmd === 'getAddons') {
+      (async function () {
+        try {
+          var ctx = await self.getState('ctx');
+          var addons = (ctx && ctx.profile && Array.isArray(ctx.profile.addons)) ? ctx.profile.addons : [];
+          var list = [];
+          for (var i = 0; i < addons.length; i++) {
+            var a = addons[i] || {};
+            if (!a.transportUrl) continue;
+            list.push({
+              transportUrl: a.transportUrl,
+              id: (a.manifest && a.manifest.id) || a.transportUrl,
+              name: (a.manifest && a.manifest.name) || a.transportUrl,
+              types: (a.manifest && a.manifest.types) || [],
+              protected: !!(a.flags && (a.flags.protected || a.flags.official))
+            });
+          }
+          self.postMessage({ __dodoReply: d.reqId, ok: true, addons: list });
+        } catch (err) {
+          self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
+        }
+      })();
+    } else if (d.__dodoCmd === 'reorderAddons' && Array.isArray(d.order)) {
+      (async function () {
+        try {
+          var ctx = await self.getState('ctx');
+          var addons = (ctx && ctx.profile && Array.isArray(ctx.profile.addons)) ? ctx.profile.addons : [];
+          var byUrl = {};
+          for (var i = 0; i < addons.length; i++) {
+            var a = addons[i];
+            if (a && a.transportUrl) byUrl[a.transportUrl] = a;
+          }
+          var seq = [];
+          for (var j = 0; j < d.order.length; j++) {
+            if (byUrl[d.order[j]]) seq.push(byUrl[d.order[j]]);
+          }
+          if (!seq.length) throw new Error('لا توجد إضافات قابلة للترتيب');
+          // 1) أزلها كلها أولًا (ترتيب التثبيت هو ما يحدد ترتيب الظهور)
+          for (var k = 0; k < seq.length; k++) {
+            try {
+              await self.dispatch(
+                { action: 'Ctx', args: { action: 'UninstallAddon', args: seq[k].transportUrl } },
+                'ctx',
+                '#/'
+              );
+            } catch (e) {}
+          }
+          // 2) أعد تثبيتها بالترتيب الجديد المطلوب (الأول → الأخير)
+          for (var m = 0; m < seq.length; m++) {
+            var it = seq[m];
+            try {
+              await self.dispatch(
+                {
+                  action: 'Ctx',
+                  args: {
+                    action: 'InstallAddon',
+                    args: {
+                      transportUrl: it.transportUrl,
+                      manifest: it.manifest,
+                      flags: it.flags && typeof it.flags === 'object' ? it.flags : { official: false, protected: false }
+                    }
+                  }
+                },
+                'ctx',
+                '#/'
+              );
+            } catch (e2) {}
+          }
+          self.postMessage({ __dodoReply: d.reqId, ok: true, count: seq.length });
+        } catch (err) {
+          self.postMessage({ __dodoReply: d.reqId, ok: false, error: String(err) });
+        }
+      })();
     }
   });
 
