@@ -1195,7 +1195,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 html = html.replace('</head>', '<link rel="preconnect" href="https://v3-cinemeta.strem.io" crossorigin><link rel="preconnect" href="https://torrentio.strem.fun" crossorigin><link href="/static/dodo_stremio_overlay.css?v=8" rel="stylesheet"></head>')
                 html = html.replace(
                     '<script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
-                    '<script src="/static/dodo_stremio_bridge.js?v=12"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
+                    '<script src="/static/dodo_stremio_bridge.js?v=13"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
                 )
                 return self.send_bytes(200, html.encode('utf-8'), 'text/html; charset=utf-8', cache='no-store', extra_headers=extra)
             return self.serve_static_file('index.html', cache='no-store', extra_headers=extra)
@@ -1215,7 +1215,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 if os.path.isfile(w_file):
                     orig_w = open(w_file, 'rb').read()
                     patched_w = (
-                        b"if(typeof importScripts==='function'){try{importScripts('/static/dodo_worker_hook.js?v=6');}catch(e){}}\n"
+                        b"if(typeof importScripts==='function'){try{importScripts('/static/dodo_worker_hook.js?v=7');}catch(e){}}\n"
                         + orig_w
                         + b"\nif(typeof self!=='undefined'&&typeof self.__dodoWrapWorkerInit==='function'){self.__dodoWrapWorkerInit();}\n"
                     )

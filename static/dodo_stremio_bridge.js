@@ -572,6 +572,186 @@
     });
   }
 
+  // 7b. Section Arranger (↕ ترتيب أقسام الهوم بالسحب) — زر صغير يظهر في الصفحة الرئيسية فقط
+  function dodoIsHomeRoute() {
+    var h = window.location.hash || '';
+    return h === '' || h === '#' || h === '#/' || h.indexOf('#/?') === 0;
+  }
+
+  var DODO_CAT_AR = { popular: 'رائج', top: 'رائج', new: 'جديد', year: 'جديد', featured: 'مميز', imdbrating: 'مميز' };
+  var DODO_TYPE_AR = { movie: 'أفلام', series: 'مسلسلات', channel: 'قنوات', tv: 'تلفاز' };
+
+  function dodoSuggestRank(a) {
+    var url = (a.transportUrl || '').toLowerCase();
+    var id = (a.id || '').toLowerCase();
+    if (id.indexOf('cinemeta') !== -1 || url.indexOf('cinemeta') !== -1) return 1;
+    if (id.indexOf('netflix') !== -1 || url.indexOf('netflix') !== -1) return 2;
+    if (url.indexOf('/addons/cartoons') !== -1 || id.indexOf('cartoon') !== -1) return 4;
+    return 3;
+  }
+
+  function mountDodoSectionArranger() {
+    if (document.getElementById('dodo-arrange-btn')) return;
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'dodo-arrange-btn';
+    btn.title = 'ترتيب أقسام الصفحة الرئيسية — اسحب كل قسم إلى موضعه';
+    btn.textContent = '↕';
+    btn.style.cssText =
+      'position:fixed;bottom:18px;inset-inline-end:18px;z-index:2147483000;display:none;' +
+      'width:44px;height:44px;border:0;border-radius:50%;cursor:pointer;' +
+      'background:rgba(124,58,237,0.8);color:#fff;font-size:20px;line-height:1;' +
+      'box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0.5;transition:opacity .15s;';
+    btn.addEventListener('mouseenter', function () { btn.style.opacity = '1'; });
+    btn.addEventListener('mouseleave', function () { btn.style.opacity = '0.5'; });
+    document.body.appendChild(btn);
+
+    function syncVisibility() {
+      btn.style.display = dodoIsHomeRoute() ? 'block' : 'none';
+    }
+    window.addEventListener('hashchange', syncVisibility);
+    syncVisibility();
+
+    btn.addEventListener('click', async function () {
+      var modal = document.createElement('div');
+      modal.className = 'dodo-modal-backdrop dodo-hidden';
+      modal.innerHTML =
+        '<div class="dodo-modal-card" style="max-width:540px;max-height:84vh;display:flex;flex-direction:column;">' +
+        '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '    <h3 style="margin:0;">↕ ترتيب أقسام الرئيسية</h3>' +
+        '    <button type="button" id="dodo-ar-close" class="dodo-btn-ghost">✕ إغلاق</button>' +
+        '  </div>' +
+        '  <p style="margin:0 0 10px;color:#94a3b8;font-size:12.5px;line-height:1.6;">' +
+        '    <strong>اسحب كل سلايد إلى موضعه</strong> أو استخدم ⬆⬇ — السطر الأول يظهر أول قسم في الصفحة الرئيسية، والأخير يظهر آخرًا.' +
+        '  </p>' +
+        '  <div style="display:flex;gap:8px;margin-bottom:10px;">' +
+        '    <button type="button" id="dodo-ar-suggest" class="dodo-btn-ghost" style="flex:1;">✨ الترتيب المقترح (رائج ← نتفلكس ← البقية ← كرتون)</button>' +
+        '  </div>' +
+        '  <div id="dodo-ar-list" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;padding:2px;"></div>' +
+        '  <div style="display:flex;gap:8px;margin-top:12px;">' +
+        '    <button type="button" id="dodo-ar-save" class="dodo-btn-primary" style="flex:1;">💾 حفظ الترتيب</button>' +
+        '    <button type="button" id="dodo-ar-reset" class="dodo-btn-ghost">↺ إلغاء المحفوظ</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(modal);
+
+      var listEl = modal.querySelector('#dodo-ar-list');
+      var saveBtn = modal.querySelector('#dodo-ar-save');
+      var items = [];
+      var dragging = null;
+
+      function chipText(c) {
+        var catAr = DODO_CAT_AR[String(c.id || '').toLowerCase()] || c.name || c.id || '';
+        var typeAr = DODO_TYPE_AR[String(c.type || '').toLowerCase()] || c.type || '';
+        if (catAr && typeAr) return catAr + ' · ' + typeAr;
+        return catAr || typeAr || '';
+      }
+
+      function render() {
+        listEl.innerHTML = '';
+        items.forEach(function (it, idx) {
+          var row = document.createElement('div');
+          row.draggable = true;
+          row.style.cssText =
+            'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;' +
+            'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:grab;';
+          var chips = '';
+          var cats = (it.catalogs || []).slice(0, 4);
+          for (var c = 0; c < cats.length; c++) {
+            var ct = chipText(cats[c]);
+            if (ct) chips += '<span style="font-size:11px;background:rgba(56,189,248,0.14);color:#7dd3fc;border-radius:999px;padding:2px 9px;white-space:nowrap;">' + ct.replace(/</g, '&lt;') + '</span>';
+          }
+          row.innerHTML =
+            '<span style="min-width:22px;text-align:center;color:#64748b;font-size:13px;">' + (idx + 1) + '</span>' +
+            '<span style="flex:1;min-width:0;">' +
+            '<span style="display:block;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + it.name.replace(/</g, '&lt;') + '</span>' +
+            (chips ? '<span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">' + chips + '</span>' : '') +
+            '</span>';
+          var mkArrow = function (dir) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = dir === 'up' ? '⬆' : '⬇';
+            var disabled = dir === 'up' ? idx === 0 : idx === items.length - 1;
+            b.style.cssText =
+              'width:34px;height:34px;border-radius:9px;border:1px solid rgba(255,255,255,0.12);' +
+              'background:rgba(255,255,255,0.06);color:#e2e8f0;font-size:14px;cursor:pointer;' +
+              (disabled ? 'opacity:0.3;cursor:default;' : '');
+            b.addEventListener('click', function () {
+              if (disabled) return;
+              if (dir === 'up' && idx > 0) items.splice(idx - 1, 0, items.splice(idx, 1)[0]);
+              if (dir === 'down' && idx < items.length - 1) items.splice(idx + 1, 0, items.splice(idx, 1)[0]);
+              render();
+            });
+            return b;
+          };
+          row.appendChild(mkArrow('up'));
+          row.appendChild(mkArrow('down'));
+
+          row.addEventListener('dragstart', function () { dragging = idx; row.style.opacity = '0.4'; });
+          row.addEventListener('dragend', function () { row.style.opacity = '1'; dragging = null; });
+          row.addEventListener('dragover', function (ev) { ev.preventDefault(); });
+          row.addEventListener('drop', function (ev) {
+            ev.preventDefault();
+            if (dragging === null || dragging === idx) return;
+            var moved = items.splice(dragging, 1)[0];
+            items.splice(idx, 0, moved);
+            dragging = null;
+            render();
+          });
+
+          listEl.appendChild(row);
+        });
+      }
+
+      modal.querySelector('#dodo-ar-close').addEventListener('click', function () { modal.remove(); });
+      modal.addEventListener('click', function (ev) { if (ev.target === modal) modal.remove(); });
+
+      modal.querySelector('#dodo-ar-suggest').addEventListener('click', function () {
+        items = items.slice().sort(function (x, y) { return dodoSuggestRank(x) - dodoSuggestRank(y); });
+        render();
+      });
+
+      modal.querySelector('#dodo-ar-reset').addEventListener('click', function () {
+        try { localStorage.removeItem('dodo_addon_order_v1'); } catch (e) {}
+        showDodoToast('↺ أُلغي الترتيب المحفوظ — الترتيب الحالي يبقى كما هو');
+      });
+
+      saveBtn.addEventListener('click', async function () {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⏳ جارٍ التطبيق...';
+        try {
+          var order = items.map(function (it) { return it.transportUrl; });
+          try { localStorage.setItem('dodo_addon_order_v1', JSON.stringify(order)); } catch (e) {}
+          await callCoreWorker('reorderAddons', { order: order });
+          showDodoToast('✅ تم حفظ ترتيبك — سيظهر نفسه في كل مرة تفتح التطبيق');
+          modal.remove();
+        } catch (err) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = '💾 حفظ الترتيب';
+          showDodoToast('تعذر الحفظ: ' + (err && err.message ? err.message : 'حاول مجددًا'));
+        }
+      });
+
+      modal.classList.remove('dodo-hidden');
+      listEl.innerHTML =
+        '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:20px 0;">⏳ جارٍ قراءة الأقسام...</p>';
+      try {
+        var addonsRes = await callCoreWorker('getAddons', {});
+        items = (addonsRes && Array.isArray(addonsRes.addons)) ? addonsRes.addons.slice() : [];
+      } catch (err) {
+        items = [];
+      }
+      if (!items.length) {
+        listEl.innerHTML =
+          '<p style="color:#fb7185;font-size:13px;text-align:center;padding:20px 0;">المحرك قيد التحميل — أغلق وافتح مرة أخرى بعد ثوانٍ.</p>';
+        saveBtn.disabled = true;
+        return;
+      }
+      render();
+    });
+  }
+
   // 7. Bootstrap Privacy Check & Start DOM Observer
   function initDodoBridge() {
     applyFitMode(getFitMode());
@@ -622,9 +802,11 @@
         }
         dodoSig = (boot && boot.media_sig) || '';
         mountDodoQuickTools();
+        mountDodoSectionArranger();
       })
       .catch(function () {
         mountDodoQuickTools();
+        mountDodoSectionArranger();
       });
 
     var syncQueued = false;
