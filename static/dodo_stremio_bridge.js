@@ -487,6 +487,8 @@
           var bestScore = -999;
           for (var i = 0; i < avail.length; i++) {
             var txt = (avail[i].innerText || '').toLowerCase();
+            // المقطع الدعائي ليس المحتوى — استبعده من الاختيار التلقائي مهما كانت درجته
+            if (txt.indexOf('دعائي') !== -1 || txt.indexOf('trailer') !== -1) continue;
             var score = 0;
             var ki = dodoStreamKind(avail[i]);
             if (ki.yt) score += 300; // مشغل يوتيوب المدمج (ytId): الأسرع والأضمن — روابط MP4 المباشرة من يوتيوب مقفولة النطاقات
