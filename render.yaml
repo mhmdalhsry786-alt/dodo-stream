@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: dodo-stream
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: DODO_PRIVACY_MODE
+        value: always
+      - key: DODO_INVITE_CODE
+        value: CHANGE_ME_INVITE_CODE
+      - key: DODO_ADMIN_PIN
+        value: CHANGE_ME_ADMIN_PIN

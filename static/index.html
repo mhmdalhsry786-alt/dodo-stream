@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="theme-color" content="#0b0818" />
+
+  <!-- iPhone / iPad Native Standalone PWA Support -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="دودو ستريم" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+  <link id="pwa-manifest-link" rel="manifest" href="/manifest.webmanifest" />
+
+  <title>دودو ستريم • Dodo Stream</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    // Preserve invite token inside PWA manifest start_url so iPhone Home Screen icon stays logged in!
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var inv = params.get('invite') || localStorage.getItem('dodo_invite_code') || '';
+        if (inv) {
+          localStorage.setItem('dodo_invite_code', inv);
+          var link = document.getElementById('pwa-manifest-link');
+          if (link) link.href = '/manifest.webmanifest?invite=' + encodeURIComponent(inv);
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- Private Invite Gate Screen (Shown when Privacy Lock requires Invite Code) -->
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-card">
+      <img src="/static/icons/icon-192.png" alt="دودو ستريم" class="auth-logo" />
+      <h1 id="auth-app-title">دودو ستريم</h1>
+      <p class="auth-sub">منصة خاصة للأصدقاء فقط • أدخل رمز الدعوة للمتابعة</p>
+      <form id="auth-form" autocomplete="off">
+        <input
+          type="password"
+          id="invite-input"
+          class="dodo-input center-input"
+          placeholder="رمز الدعوة الخاص..."
+          required
+        />
+        <button type="submit" class="btn-primary full-btn">دخول إلى دودو ستريم</button>
+      </form>
+      <p id="auth-error" class="error-msg hidden"></p>
+      <p class="auth-hint">🔒 مشفّر وخاص — لا يتم تتبع سجل مشاهدتك خارج جهازك</p>
+    </div>
+  </div>
+
+  <!-- Main App Shell -->
+  <div id="app-shell" class="app-shell hidden">
+    <!-- Desktop / Tablet Sidebar (Right side in RTL, just like Stremio) -->
+    <aside class="sidebar">
+      <div class="brand-box" data-nav="board" title="الرئيسية">
+        <img src="/static/icons/icon-192.png" alt="Dodo" class="brand-logo" />
+        <span id="sidebar-brand-name" class="brand-title">دودو ستريم</span>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-btn active" data-nav="board">
+          <span class="nav-ico">🏠</span>
+          <span class="nav-lbl">الرئيسية</span>
+        </button>
+        <button class="nav-btn" data-nav="discover">
+          <span class="nav-ico">🧭</span>
+          <span class="nav-lbl">استكشف</span>
+        </button>
+        <button class="nav-btn" data-nav="library">
+          <span class="nav-ico">❤️</span>
+          <span class="nav-lbl">مكتبتي</span>
+        </button>
+        <button class="nav-btn" data-nav="addons">
+          <span class="nav-ico">🧩</span>
+          <span class="nav-lbl">الإضافات</span>
+        </button>
+        <button class="nav-btn" data-nav="share">
+          <span class="nav-ico">📲</span>
+          <span class="nav-lbl">تثبيت ومشاركة</span>
+        </button>
+        <button class="nav-btn" data-nav="privacy">
+          <span class="nav-ico">🔒</span>
+          <span class="nav-lbl">الخصوصية والمالك</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-column">
+      <!-- Sticky Glass Topbar -->
+      <header class="topbar">
+        <div class="mobile-brand" data-nav="board">
+          <img src="/static/icons/icon-192.png" alt="Dodo" />
+          <span id="mobile-brand-name">دودو ستريم</span>
+        </div>
+
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="search"
+            id="global-search"
+            placeholder="ابحث عن فيلم، مسلسل، كرتون مدبلج، ديزني، أنمي..."
+            autocomplete="off"
+          />
+          <button id="clear-search" class="icon-clear hidden" title="مسح">✕</button>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="open-universal-modal-btn" class="pill-btn accent-pill" title="تشغيل أو إضافة أي رابط أو صيغة">
+            🔗 أي رابط / ملف
+          </button>
+          <button id="install-quick-btn" class="pill-btn subtle-pill hide-xs" data-nav="share">
+            📲 تثبيت
+          </button>
+          <button class="pill-btn subtle-pill hide-xs" data-nav="privacy" title="إعدادات الخصوصية">
+            🔒 خاص
+          </button>
+        </div>
+      </header>
+
+      <!-- Views Container -->
+      <main id="views-root" class="views-root">
+        <!-- 1. BOARD (HOME) VIEW -->
+        <section id="view-board" class="view-page active">
+          <div id="hero-banner" class="hero-banner">
+            <div class="hero-backdrop" id="hero-backdrop"></div>
+            <div class="hero-overlay"></div>
+            <div class="hero-content">
+              <div class="hero-badges">
+                <span class="badge badge-glow">✨ دودو ستريم الخاص</span>
+                <span class="badge" id="hero-type-badge">مختارات مميزة</span>
+              </div>
+              <h1 id="hero-title">ذكريات الكرتون والسينما العالمية في مكان واحد</h1>
+              <p id="hero-desc">شاهد مكتبة MBC3 وسبيستون ونيكلوديون وديزني المدبلجة مع أحدث الأفلام والمسلسلات والترجمة العربية على الآيفون والأندرويد.</p>
+              <div class="hero-btns">
+                <button id="hero-play-btn" class="btn-primary">▶ شاهد الآن</button>
+                <button id="hero-install-btn" class="btn-glass" data-nav="share">📲 تثبيت على الآيفون / الأندرويد</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Continue Watching Row -->
+          <div id="continue-section" class="shelf-section hidden">
+            <div class="shelf-head">
+              <h2>⏯ متابعة المشاهدة</h2>
+              <button id="clear-history-btn" class="text-link">مسح السجل</button>
+            </div>
+            <div id="continue-row" class="poster-row"></div>
+          </div>
+
+          <!-- Dynamic Catalog Shelves -->
+          <div id="board-shelves"></div>
+        </section>
+
+        <!-- 2. SEARCH RESULTS VIEW -->
+        <section id="view-search" class="view-page">
+          <div class="page-header">
+            <h2 id="search-heading">نتائج البحث</h2>
+            <button id="back-from-search" class="btn-glass small-btn">← العودة للرئيسية</button>
+          </div>
+          <div id="search-status" class="status-banner hidden"></div>
+          <div id="search-results-container"></div>
+        </section>
+
+        <!-- 3. DISCOVER VIEW -->
+        <section id="view-discover" class="view-page">
+          <div class="page-header">
+            <h2>🧭 استكشف المكتبة الكاملة</h2>
+          </div>
+          <div class="filter-bar">
+            <div class="filter-group">
+              <label>النوع</label>
+              <select id="disc-type" class="dodo-select">
+                <option value="series">المسلسلات والكرتون</option>
+                <option value="movie">الأفلام</option>
+                <option value="tv">قنوات البث المباشر (Live TV)</option>
+                <option value="channel">القنوات واليوتيوب</option>
+                <option value="anime">الأنمي</option>
+              </select>
+            </div>
+            <div class="filter-group grow">
+              <label>القائمة / المصدر</label>
+              <select id="disc-catalog" class="dodo-select"></select>
+            </div>
+            <div class="filter-group" id="disc-genre-wrap">
+              <label>التصنيف</label>
+              <select id="disc-genre" class="dodo-select">
+                <option value="">الكل</option>
+                <option value="Animation">رسوم متحركة</option>
+                <option value="Action">أكشن</option>
+                <option value="Adventure">مغامرة</option>
+                <option value="Comedy">كوميديا</option>
+                <option value="Drama">دراما</option>
+                <option value="Sci-Fi">خيال علمي</option>
+                <option value="Fantasy">فانتازيا</option>
+                <option value="Mystery">غموض</option>
+                <option value="Crime">جريمة</option>
+                <option value="Horror">رعب</option>
+                <option value="Family">عائلي</option>
+              </select>
+            </div>
+          </div>
+          <div id="discover-grid" class="poster-grid"></div>
+          <div class="center-box">
+            <button id="discover-more-btn" class="btn-glass hidden">عرض المزيد من الأعمال ↓</button>
+          </div>
+        </section>
+
+        <!-- 4. LIBRARY VIEW -->
+        <section id="view-library" class="view-page">
+          <div class="page-header">
+            <h2>❤️ مكتبتي الخاصة</h2>
+            <div class="row-gap">
+              <button id="export-lib-btn" class="btn-glass small-btn">تصدير نسختي</button>
+              <label class="btn-glass small-btn pointer">
+                استيراد
+                <input type="file" id="import-lib-input" accept=".json" class="hidden" />
+              </label>
+            </div>
+          </div>
+          <p class="muted-note">تُحفظ قائمتك المفضلة وسجل مشاهدتك محليًا على جهازك فقط لضمان خصوصيتك الكاملة بين الأصدقاء.</p>
+          <div id="library-grid" class="poster-grid"></div>
+        </section>
+
+        <!-- 5. ADDONS MANAGER VIEW (100% Stremio Compatible) -->
+        <section id="view-addons" class="view-page">
+          <div class="page-header">
+            <h2>🧩 إضافات دودو ستريم (متوافقة مع Stremio)</h2>
+          </div>
+          <div class="card-panel">
+            <h3>مفتوح بالكامل: أضف أو شغّل أي رابط أو صيغة</h3>
+            <p class="muted-note">يقبل جميع الصيغ والروابط تلقائيًا: إضافات Stremio الحديثة (<code>manifest.json</code> / <code>stremio://</code>) والقديمة (مثل <code>.../stremio/v1</code>)، قوائم القنوات (<code>.m3u</code> / <code>.m3u8</code>)، خلاصات JSON/RSS، أو أي رابط فيديو/تورنت/يوتيوب مباشر!</p>
+            <form id="add-addon-form" class="addon-form">
+              <input
+                type="text"
+                id="addon-url-input"
+                class="dodo-input"
+                placeholder="الصق أي رابط: https://.../stremio/v1 أو manifest.json أو .m3u أو فيديو مباشر..."
+                dir="ltr"
+                required
+              />
+              <button type="submit" class="btn-primary">إضافة / تشغيل فوري +</button>
+            </form>
+            <label style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-size:0.88rem;color:#cbd5e1;cursor:pointer;">
+              <input type="checkbox" id="addon-global-chk" />
+              👑 تعميم هذه الإضافة تلقائيًا على جميع الأصدقاء (كمالك)
+            </label>
+            <p id="addon-msg" class="status-inline hidden"></p>
+          </div>
+
+          <h3 style="margin:22px 0 10px;">✅ الإضافات والكتالوجات المثبتة حاليًا</h3>
+          <div id="addons-list" class="addons-grid"></div>
+
+          <div class="card-panel" style="margin-top:26px;">
+            <div class="panel-head-row" style="flex-wrap:wrap;">
+              <h3>🛒 متجر إضافات وكتالوجات Stremio المجتمعي المدمج</h3>
+              <input type="search" id="store-search-input" class="dodo-input" style="max-width:300px;" placeholder="ابحث في متجر الإضافات..." />
+            </div>
+            <p class="muted-note">تصفح وثبّت الكتالوجات والإضافات المتوافقة مع Stremio بضغطة واحدة:</p>
+            <div id="community-store-grid" class="addons-grid"></div>
+          </div>
+        </section>
+
+        <!-- 6. SHARE & INSTALL ON IPHONE / ANDROID VIEW -->
+        <section id="view-share" class="view-page">
+          <div class="page-header">
+            <h2>📲 تثبيت «دودو ستريم» ومشاركته مع أصدقائك</h2>
+          </div>
+
+          <div class="install-cards-grid">
+            <!-- iPhone / iPad Card -->
+            <div class="card-panel highlight-ios">
+              <div class="device-tag">🍎 أجهزة آبل (iPhone & iPad)</div>
+              <h3>تثبيت كتطبيق كامل الشاشة على الآيفون (بدون متجر آبل)</h3>
+              <ol class="steps-list">
+                <li>افتح رابط <strong>دودو ستريم</strong> في متصفح <strong>Safari</strong> على الآيفون.</li>
+                <li>اضغط أيقونة <strong>المشاركة (Share ⬆️)</strong> في الشريط السفلي لمتصفح سفاري.</li>
+                <li>اختر <strong>«إضافة إلى الشاشة الرئيسية» (Add to Home Screen ➕)</strong> ثم اضغط <strong>إضافة</strong>.</li>
+              </ol>
+              <div class="tip-box">
+                <strong>💡 نصيحة ذهبية للآيفون:</strong>
+                جميع مسلسلات وأفلام الكرتون والترجمة العربية تعمل <strong>مباشرة داخل التطبيق</strong> مع دعم ملء الشاشة وAirPlay! ولأفلام البلوراي الخام بصيغة MKV يمكنك أيضًا تثبيت تطبيق <strong>Outplayer</strong> أو <strong>VLC</strong> المجاني من App Store لفتحها بضغطة زر واحدة.
+              </div>
+            </div>
+
+            <!-- Android Card -->
+            <div class="card-panel highlight-android">
+              <div class="device-tag">🤖 أجهزة أندرويد (Android)</div>
+              <h3>تثبيت فوري بأيقونة مستقلة على أندرويد</h3>
+              <p class="muted-note">يعمل كتطبيق أندرويد مثبت بالكامل عبر متصفح Chrome أو Samsung Internet بدون تحذيرات الحماية:</p>
+              <button id="android-pwa-btn" class="btn-primary full-btn" style="margin: 12px 0;">
+                📲 تثبيت دودو ستريم الآن على جهازك
+              </button>
+              <ol class="steps-list">
+                <li>أو اضغط قائمة النقاط الثلاث <strong>(⋮)</strong> أعلى متصفح Chrome.</li>
+                <li>اختر <strong>«تثبيت التطبيق» (Install App)</strong> أو <strong>«الإضافة إلى الشاشة الرئيسية»</strong>.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="card-panel" style="margin-top:18px;">
+            <h3>🔗 مشاركة الرابط مع أصدقائك</h3>
+            <p class="muted-note">انسخ رابط تطبيقك الحالي أو افتح تبويب «الخصوصية والمالك» لتضمين رمز الدعوة السري تلقائيًا في الرابط:</p>
+            <div class="share-row">
+              <input type="text" id="share-current-url" class="dodo-input" dir="ltr" readonly />
+              <button id="copy-share-url-btn" class="btn-primary">📋 نسخ الرابط</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. PRIVACY & OWNER CONTROL PANEL -->
+        <section id="view-privacy" class="view-page">
+          <div class="page-header">
+            <h2>🔒 الخصوصية ولوحة تحكم المالك</h2>
+          </div>
+
+          <div class="card-panel">
+            <h3>حماية الخصوصية المفعّلة حاليًا</h3>
+            <ul class="steps-list">
+              <li><strong>منع الأرشفة والبحث:</strong> التطبيق محجوب تمامًا عن محركات البحث والروبوتات (<code>noindex, nofollow</code>).</li>
+              <li><strong>خصوصية كل صديق:</strong> سجل المشاهدة والمفضلة يُحفظ على هاتف كل شخص بشكل مستقل، فلا يرى أحد ما يشاهده الآخر.</li>
+              <li><strong>بوابة رمز الدعوة:</strong> يمكنك تغيير رمز الدعوة في أي لحظة لإلغاء وصول أي شخص غير مصرح له فورًا.</li>
+            </ul>
+          </div>
+
+          <div id="owner-unlock-box" class="card-panel" style="margin-top:18px;">
+            <h3>👑 دخول المالك لإدارة رمز الدعوة والإضافات العامة</h3>
+            <p class="muted-note">أدخل رمز المالك السري لفتح إعدادات الدعوة والمرونة:</p>
+            <form id="owner-unlock-form" class="addon-form">
+              <input type="password" id="owner-pin-input" class="dodo-input" placeholder="رمز المالك..." required />
+              <button type="submit" class="btn-primary">فتح لوحة المالك</button>
+            </form>
+            <p id="owner-unlock-err" class="error-msg hidden"></p>
+          </div>
+
+          <div id="owner-settings-box" class="card-panel hidden" style="margin-top:18px;">
+            <h3>⚙️ إعدادات المالك والدعوات الخاصة</h3>
+            <form id="owner-save-form" class="owner-grid">
+              <div>
+                <label>اسم التطبيق (يظهر للأصدقاء وتحت الأيقونة)</label>
+                <input type="text" id="cfg-app-name" class="dodo-input" />
+              </div>
+              <div>
+                <label>رمز الدعوة السري للأصدقاء (Invite Code)</label>
+                <input type="text" id="cfg-invite-code" class="dodo-input" dir="ltr" />
+              </div>
+              <div>
+                <label>وضع الحماية والخصوصية</label>
+                <select id="cfg-privacy-mode" class="dodo-select">
+                  <option value="internet_only">ذكي: مفتوح بشبكتك المحلية + يطلب رمز الدعوة عبر الإنترنت (موصى به)</option>
+                  <option value="always">مشدد: طلب رمز الدعوة دائمًا على جميع الأجهزة</option>
+                  <option value="off">مرن: فتح مباشر بالرابط بدون طلب رمز دعوة</option>
+                </select>
+              </div>
+              <div>
+                <label>تغيير رمز المالك (اتركه فارغًا للإبقاء على الحالي)</label>
+                <input type="password" id="cfg-new-pin" class="dodo-input" placeholder="رمز مالك جديد اختياري..." />
+              </div>
+              <div class="full-span row-gap">
+                <button type="submit" class="btn-primary">💾 حفظ الإعدادات فورًا</button>
+                <button type="button" id="copy-friend-invite-btn" class="btn-glass">💌 نسخ رسالة دعوة جاهزة للأصدقاء</button>
+              </div>
+            </form>
+            <p id="owner-save-msg" class="status-inline hidden"></p>
+          </div>
+        </section>
+      </main>
+
+      <!-- Mobile Bottom Navigation (iPhone Safe-Area Ready) -->
+      <nav class="bottom-nav">
+        <button class="bnav-btn active" data-nav="board">
+          <span>🏠</span><small>الرئيسية</small>
+        </button>
+        <button class="bnav-btn" data-nav="discover">
+          <span>🧭</span><small>استكشف</small>
+        </button>
+        <button class="bnav-btn" data-nav="library">
+          <span>❤️</span><small>مكتبتي</small>
+        </button>
+        <button class="bnav-btn" data-nav="addons">
+          <span>🧩</span><small>الإضافات</small>
+        </button>
+        <button class="bnav-btn" data-nav="share">
+          <span>📲</span><small>تثبيت</small>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Full-Screen Item Detail & Episodes Modal (Stremio Detail Layout) -->
+  <div id="detail-modal" class="detail-modal hidden">
+    <div id="detail-backdrop" class="detail-backdrop"></div>
+    <div class="detail-shade"></div>
+    <div class="detail-scroll">
+      <div class="detail-topbar">
+        <button id="close-detail-btn" class="btn-glass">✕ رجوع</button>
+        <div class="row-gap">
+          <button id="detail-autoplay-btn" class="btn-primary">▶ شغّل الآن تلقائيًا</button>
+          <button id="fav-toggle-btn" class="btn-glass">🤍 أضف لمكتبتي</button>
+        </div>
+      </div>
+
+      <div class="detail-body">
+        <!-- Info Column -->
+        <div class="detail-meta-col">
+          <img id="detail-poster" class="detail-poster" alt="" />
+          <div class="detail-meta-text">
+            <div id="detail-chips" class="chips-row"></div>
+            <h1 id="detail-title"></h1>
+            <p id="detail-desc" class="detail-desc"></p>
+          </div>
+        </div>
+
+        <!-- Episodes + Streams Workspace -->
+        <div class="detail-work-col">
+          <!-- Seasons & Episodes (for Series) -->
+          <div id="episodes-panel" class="sub-panel hidden">
+            <div class="panel-head-row">
+              <h3>📺 المواسم والحلقات</h3>
+              <select id="season-select" class="dodo-select compact-select"></select>
+            </div>
+            <input type="search" id="ep-filter-input" class="dodo-input compact-input" placeholder="ابحث برقم أو عنوان الحلقة..." />
+            <div id="episodes-list" class="episodes-list"></div>
+          </div>
+
+          <!-- Streams Picker -->
+          <div id="streams-panel" class="sub-panel">
+            <div class="panel-head-row">
+              <h3 id="streams-heading">🎬 سيرفرات المشاهدة والجودات</h3>
+              <span id="streams-spinner" class="mini-badge">جارٍ الفحص...</span>
+            </div>
+            <div id="streams-list" class="streams-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Smart iPhone / Android Video Player Overlay -->
+  <div id="player-modal" class="player-modal hidden">
+    <div class="player-topbar">
+      <button id="close-player-btn" class="btn-glass small-btn">✕ إغلاق المشغل</button>
+      <div class="player-titles">
+        <strong id="player-main-title"></strong>
+        <small id="player-sub-title"></small>
+      </div>
+      <button id="next-ep-btn" class="btn-primary small-btn hidden">الحلقة التالية ⏭</button>
+    </div>
+
+    <div class="video-stage" style="position:relative;">
+      <video
+        id="dodo-video"
+        controls
+        autoplay
+        playsinline
+        webkit-playsinline
+        x-webkit-airplay="allow"
+        preload="auto"
+      ></video>
+      <iframe
+        id="dodo-yt-frame"
+        class="hidden"
+        style="width:100%;height:100%;border:0;"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+        allowfullscreen
+      ></iframe>
+      <div
+        id="player-loading-overlay"
+        class="hidden"
+        style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(8,6,18,0.72);backdrop-filter:blur(6px);z-index:12;pointer-events:none;text-align:center;padding:18px;"
+      >
+        <div style="font-size:2.2rem;margin-bottom:10px;">⚡</div>
+        <strong id="player-loading-text" style="color:#fff;font-size:1.05rem;">جارٍ التشغيل التلقائي بأفضل جودة متوافقة مع جهازك...</strong>
+      </div>
+      <button
+        id="unmute-floating-btn"
+        class="btn-primary hidden"
+        style="position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:15;box-shadow:0 8px 28px rgba(0,0,0,0.6);"
+      >
+        🔊 اضغط لتشغيل الصوت
+      </button>
+      <div id="player-alert" class="player-alert hidden"></div>
+    </div>
+
+    <div class="player-Bottombar">
+      <div class="player-controls-group" style="flex-wrap:wrap;">
+        <label class="ctrl-label">🔀 السيرفر:</label>
+        <select id="player-server-select" class="dodo-select compact-select" style="max-width:210px;">
+          <option value="0">تلقائي</option>
+        </select>
+        <label class="ctrl-label">📝 الترجمة:</label>
+        <select id="subtitle-select" class="dodo-select compact-select">
+          <option value="">بدون ترجمة (أو مدبلج)</option>
+        </select>
+        <button id="pip-btn" class="btn-glass small-btn" title="صورة داخل صورة">🖼 نافذة عائمة</button>
+      </div>
+
+      <div class="external-players-bar">
+        <span class="ctrl-label">فتح خارجي سريع:</span>
+        <a id="ext-outplayer" href="#" class="pill-btn ios-pill">🍎 Outplayer</a>
+        <a id="ext-vlc-ios" href="#" class="pill-btn vlc-pill">🟠 VLC آيفون</a>
+        <a id="ext-android" href="#" class="pill-btn android-pill">🤖 مشغل أندرويد</a>
+        <button id="copy-stream-btn" class="pill-btn subtle-pill">📋 نسخ البث</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Universal Open Link / Local File Modal -->
+  <div id="universal-link-modal" class="auth-gate hidden" style="z-index:1200;background:rgba(7,5,16,0.86);">
+    <div class="auth-card" style="max-width:540px;text-align:right;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h2 style="margin:0;font-size:1.25rem;">🔗 تشغيل أو إضافة أي رابط أو ملف</h2>
+        <button type="button" id="close-universal-modal-btn" class="btn-glass small-btn">✕ إغلاق</button>
+      </div>
+      <p class="muted-note" style="margin-bottom:12px;">
+        يدعم كل الصيغ بلا استثناء: إضافات Stremio (<code>manifest.json</code> أو <code>/stremio/v1</code> أو <code>stremio://</code>)، قوائم القنوات (<code>.m3u</code>)، روابط الفيديو المباشرة (<code>MP4, MKV, HLS m3u8, TS, AVI, MP3</code>)، روابط التورنت (<code>magnet:</code> / <code>.torrent</code>)، ويوتيوب!
+      </p>
+      <form id="universal-link-form">
+        <input
+          type="text"
+          id="universal-link-input"
+          class="dodo-input"
+          dir="ltr"
+          placeholder="https://... أو stremio://... أو magnet:?xt=..."
+          required
+        />
+        <div class="row-gap" style="margin-top:12px;justify-content:space-between;flex-wrap:wrap;">
+          <button type="submit" class="btn-primary" style="flex:1;">⚡ فتح / تشغيل تلقائي الآن</button>
+          <label class="btn-glass pointer" style="display:inline-flex;align-items:center;gap:6px;padding:10px 14px;">
+            📂 ملف من جهازك
+            <input type="file" id="local-media-file-input" accept="video/*,audio/*,.mkv,.avi,.ts,.flv,.m3u,.m3u8" class="hidden" />
+          </label>
+        </div>
+      </form>
+      <p id="universal-link-status" class="status-inline hidden" style="margin-top:10px;"></p>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="dodo-toast" class="dodo-toast hidden"></div>
+
+  <script src="/static/vendor/hls.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

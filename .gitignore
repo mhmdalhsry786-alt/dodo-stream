@@ -1,0 +1,14 @@
+# أسرار وإعدادات محلية — لا ترفعها أبدًا
+config.json
+*.bak
+
+# ملفات تشغيل مؤقتة
+.cache/
+__pycache__/
+*.pyc
+data/auto_*.json
+data/aot_s3_ar/
+dodo_phone_qr.png
+_*.txt
+_*.py
+_bootlog.txt
