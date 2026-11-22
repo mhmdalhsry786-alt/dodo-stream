@@ -345,6 +345,35 @@ CARTOON_MANIFEST = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# إضافة أنمي دودو الموحدة — تدمج Anime Catalogs (قوائم MAL/AniDB) + Anime Kitsu (ميتا/ترتيب/ترجمة)
+# ---------------------------------------------------------------------------
+ANIME_UPSTREAM_KITSU = 'https://anime-kitsu.strem.fun'
+ANIME_UPSTREAM_CATALOGS = (
+    'https://1fe84bc728af-stremio-anime-catalogs.baby-beamup.club/'
+    '%7B%22search%22%3A%22on%22%2C%22myanimelist_top-all-time%22%3A%22on%22%2C'
+    '%22myanimelist_top-movies%22%3A%22on%22%2C%22myanimelist_popular%22%3A%22on%22%2C%22anidb_popular%22%3A%22on%22%7D'
+)
+
+ANIME_MANIFEST = {
+    'id': 'dodo.anime.merged',
+    'version': '1.0.0',
+    'name': 'أنمي دودو الموحد',
+    'description': 'قوائم أفضل الأنميات من MyAnimeList وAniDB وKitsu في إضافة واحدة + ترتيب الحلقات بالترقيم الياباني الدقيق والترجمة.',
+    'resources': ['catalog', 'meta', 'subtitles'],
+    'types': ['series', 'movie', 'anime'],
+    'idPrefixes': ['kitsu', 'mal', 'anilist', 'anidb'],
+    'catalogs': [
+        {'type': 'anime', 'id': 'myanimelist_top-all-time', 'name': 'أفضل أنميات التاريخ', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'myanimelist_popular', 'name': 'الأنمي الأكثر شعبية', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'myanimelist_top-movies', 'name': 'أفضل أفلام أنمي', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'anidb_popular', 'name': 'رائج على AniDB', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'kitsu-anime-airing', 'name': 'يُعرض الآن', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'kitsu-anime-trending', 'name': 'الأكثر رواجًا', 'extra': [{'name': 'skip', 'isRequired': False}]},
+        {'type': 'anime', 'id': 'anime-catalogs-search', 'name': 'بحث الأنمي', 'extra': [{'name': 'search', 'isRequired': True}]},
+    ],
+}
+
 SUBTITLES_MANIFEST = {
     'id': 'dodo.arabic.subtitles',
     'version': '2.0.0',
@@ -790,11 +819,12 @@ def get_default_addons(base_origin):
             'builtIn': True,
         },
         {
-            'id': 'anime.kitsu.strem.fun',
-            'name': 'Anime Kitsu • مكتبة الأنمي',
-            'description': 'فهرس مسلسلات وأفلام الأنمي الياباني مع المواسم والحلقات.',
-            'transportUrl': 'https://anime-kitsu.strem.fun/manifest.json',
+            'id': ANIME_MANIFEST['id'],
+            'name': 'أنمي دودو الموحد • MAL + AniDB + Kitsu',
+            'description': 'قوائم أفضل الأنميات من MyAnimeList وAniDB وKitsu + الترتيب الياباني الدقيق للحلقات والترجمة — إضافة واحدة تحل محل الاثنين.',
+            'transportUrl': f'{base_origin}/addons/anime/manifest.json',
             'builtIn': True,
+            'manifest': ANIME_MANIFEST,
         },
         {
             'id': 'org.stremio.publicdomainmovies',
@@ -1551,6 +1581,13 @@ class DodoHandler(BaseHTTPRequestHandler):
             return self.handle_cartoon_addon(rel, origin, media_sig)
 
         # -------------------------------------------------------------------
+        # 5a. Built-in Unified Anime Addon (/addons/anime/... — MAL + AniDB + Kitsu مدمجين)
+        # -------------------------------------------------------------------
+        if raw_path.startswith('/addons/anime/'):
+            an_rel = raw_path[len('/addons/anime/') :]
+            return self.handle_anime_addon(an_rel)
+
+        # -------------------------------------------------------------------
         # 5a-bis. Local YouTube Addon Proxy (/addons/youtube/... → 127.0.0.1:8790)
         #         يجعل إضافة يوتيوب المحلية تعمل من الهاتف عبر النفق أيضًا
         # -------------------------------------------------------------------
@@ -2097,6 +2134,35 @@ class DodoHandler(BaseHTTPRequestHandler):
                 return self.send_json(502, {'error': f'تعذر جلب البث عبر الوكيل: {str(exc)[:100]}'})
 
         return self.send_json(404, {'error': 'المسار غير موجود'})
+
+    def handle_anime_addon(self, rel):
+        # إضافة أنمي دودو الموحدة: قوائم MAL/AniDB + البحث من Anime Catalogs، والميتا والترتيب والترجمة من Kitsu
+        if not rel or '..' in rel:
+            return self.send_json(400, {'error': 'مسار أنمي غير صالح'})
+        if rel == 'manifest.json':
+            return self.send_json(200, ANIME_MANIFEST)
+        first = rel.split('/', 1)[0]
+        if first not in ('catalog', 'meta', 'subtitles'):
+            return self.send_json(404, {'error': 'غير موجود'})
+        if first == 'catalog':
+            parts = rel.split('/')
+            cat_raw = (parts[2] if len(parts) > 2 else '').removesuffix('.json')
+            base = ANIME_UPSTREAM_KITSU if cat_raw.startswith('kitsu-') else ANIME_UPSTREAM_CATALOGS
+            ttl = 300 if 'search=' in rel else 21600
+        elif first == 'meta':
+            base = ANIME_UPSTREAM_KITSU
+            ttl = 86400
+        else:
+            base = ANIME_UPSTREAM_KITSU
+            ttl = 3600
+        upstream = f'{base}/{rel}'
+        try:
+            data = fetch_json(upstream, timeout=14, cache_ttl=ttl)
+            return self.send_json(200, data)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as exc:
+            return self.send_json(502, {'error': f'تعذر جلب بيانات الأنمي من المصدر: {str(exc)[:70]}'})
 
     def handle_cartoon_addon(self, rel, origin, media_sig):
         if rel == 'manifest.json':
