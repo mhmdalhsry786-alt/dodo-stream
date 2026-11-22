@@ -43,7 +43,7 @@ def read_cfg():
                 return json.load(f)
         except Exception:
             pass
-    return {'app_name': 'دودو ستريم', 'invite_code': '', 'privacy_mode': 'internet_only'}
+    return {'app_name': 'دودو ستريم', 'invite_code': 'DODO2026', 'privacy_mode': 'internet_only'}
 
 
 def is_server_running():
@@ -58,7 +58,7 @@ class DodoControlApp:
     def __init__(self, root):
         self.root = root
         self.root.title('لوحة تحكم دودو ستريم • التشغيل والمشاركة الخاصة')
-        self.root.geometry('590x470')
+        self.root.geometry('590x660')
         self.root.configure(bg='#0e0a1f')
         self.server_proc = None
         self.engine_proc = None
@@ -101,7 +101,7 @@ class DodoControlApp:
         self.inv_entry = tk.Entry(inv_frame, font=('Consolas', 11, 'bold'), width=18, justify='center')
         self.inv_entry.pack(side='right', padx=8)
         cfg = read_cfg()
-        self.inv_entry.insert(0, cfg.get('invite_code', ''))
+        self.inv_entry.insert(0, cfg.get('invite_code', 'DODO2026'))
         tk.Button(
             inv_frame,
             text='حفظ الرمز',
@@ -119,6 +119,15 @@ class DodoControlApp:
         self.url_var = tk.StringVar(value=f'http://{get_lan_ip()}:{PORT}/')
         self.url_entry = tk.Entry(link_frame, textvariable=self.url_var, font=('Consolas', 10), state='readonly', justify='left')
         self.url_entry.pack(fill='x', pady=6)
+
+        # QR Box — باركود حي للهاتف يتحدث تلقائيًا مع رابط النفق الحالي (لا يموت مع إعادة التشغيل)
+        qr_frame = tk.Frame(root, bg='#171233', padx=12, pady=10)
+        qr_frame.pack(fill='x', padx=22, pady=6)
+        tk.Label(qr_frame, text='📱 باركود الدخول للهاتف — امسحه ويدخل مباشرة:', font=('Segoe UI', 9, 'bold'), fg='#e2e8f0', bg='#171233').pack(anchor='e')
+        self.qr_lbl = tk.Label(qr_frame, bg='#0e0a1f', fg='#94a3b8', font=('Segoe UI', 9), text='جارٍ تحميل الباركود...')
+        self.qr_lbl.pack(pady=6)
+        self.qr_photo = None
+        tk.Button(qr_frame, text='🔄 تحديث الباركود', command=self.refresh_qr, bg='#1e293b', fg='#f8fafc', font=('Segoe UI', 9, 'bold'), relief='flat', pady=6).pack(fill='x')
 
         # Buttons Grid
         btns = tk.Frame(root, bg='#0e0a1f')
@@ -182,6 +191,7 @@ class DodoControlApp:
         ).pack(fill='x', pady=6)
 
         self.refresh_status()
+        self.refresh_qr()
 
     def save_invite(self):
         new_code = self.inv_entry.get().strip()
@@ -198,6 +208,35 @@ class DodoControlApp:
         code = self.inv_entry.get().strip()
         base = self.tunnel_url or f'http://{get_lan_ip()}:{PORT}'
         self.url_var.set(f'{base}/?invite={code}' if code else f'{base}/')
+
+    def refresh_qr(self):
+        threading.Thread(target=self._fetch_qr, daemon=True).start()
+
+    def _fetch_qr(self):
+        try:
+            rq = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/phone-qr', headers={'User-Agent': 'Mozilla/5.0'})
+            data = urllib.request.urlopen(rq, timeout=15).read()
+            if data[:8] == b'\x89PNG\r\n\x1a\n':
+                p = os.path.join(HERE, '_phone_qr_live.png')
+                with open(p, 'wb') as f:
+                    f.write(data)
+                self.root.after(0, lambda: self._show_qr(p))
+            else:
+                msg = 'السيرفر يعمل لكن مكتبة الباركود ناقصة'
+                self.root.after(0, lambda: self.qr_lbl.config(image='', text=msg))
+        except Exception:
+            msg = 'تعذر الجلب — تأكد أن الخادم يعمل ثم اضغط تحديث'
+            self.root.after(0, lambda: self.qr_lbl.config(image='', text=msg))
+
+    def _show_qr(self, path):
+        try:
+            ph = tk.PhotoImage(file=path)
+            if ph.width() > 240:
+                ph = ph.subsample(2, 2)
+            self.qr_photo = ph
+            self.qr_lbl.config(image=ph, text='')
+        except Exception:
+            self.qr_lbl.config(image='', text='تعذر عرض الباركود')
 
     def ensure_stremio_engine(self):
         try:

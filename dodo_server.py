@@ -1256,6 +1256,42 @@ class DodoHandler(BaseHTTPRequestHandler):
             return self.serve_stremio_web_file(rel_s, cache=imm_cache)
 
         # Session & App Bootstrap Status
+        if raw_path == '/api/phone-qr':
+            # باركود حيّ للهاتف: يقرأ رابط النفق الحالي من سجل cloudflared — يبقى صحيحًا بعد أي إعادة تشغيل
+            if not self.is_authorized(params):
+                return self.send_json(401, {'error': 'يتطلب رمز الدعوة'})
+            tun_url = ''
+            try:
+                with open(os.path.join(HERE, 'cloudflared.log'), encoding='utf-8', errors='replace') as f:
+                    _cf_txt = f.read()
+                _cf_urls = re.findall(r'https://[a-z0-9-]+\.trycloudflare\.com', _cf_txt)
+                if _cf_urls:
+                    tun_url = _cf_urls[-1]
+            except Exception:
+                pass
+            if not tun_url:
+                _lan_ip = '127.0.0.1'
+                try:
+                    _s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    _s.connect(('8.8.8.8', 80))
+                    _lan_ip = _s.getsockname()[0]
+                    _s.close()
+                except Exception:
+                    pass
+                _srv_port = int(os.environ.get('DODO_PORT', os.environ.get('PORT', '18880')))
+                tun_url = f'http://{_lan_ip}:{_srv_port}/'
+            with CONFIG_LOCK:
+                _inv = str(CFG.get('invite_code', ''))
+            _qr_link = tun_url + (('?invite=' + urllib.parse.quote(_inv)) if _inv else '')
+            try:
+                import io as _io
+                import qrcode as _qrcode
+                _buf = _io.BytesIO()
+                _qrcode.make(_qr_link).save(_buf, 'PNG')
+                return self.send_bytes(200, _buf.getvalue(), 'image/png', cache='no-store')
+            except Exception as _qr_exc:
+                return self.send_json(200, {'url': _qr_link, 'png': False, 'error': str(_qr_exc)[:60]})
+
         if raw_path == '/api/bootstrap':
             authed = self.is_authorized(params)
             origin = self.base_origin()
