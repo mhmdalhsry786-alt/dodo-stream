@@ -222,6 +222,7 @@ def load_or_init_config():
         'privacy_mode': 'internet_only',  # 'always' | 'internet_only' | 'off'
         'secret_key': secrets.token_hex(24),
         'global_extra_addons': [],
+        'canonical_addon_order': {},  # الترتيب الرسمي للإضافات المحفوظ داخل التطبيق
     }
     env_b64 = os.environ.get('DODO_INIT_CONFIG_B64', '').strip()
     if env_b64:
@@ -787,6 +788,23 @@ def find_arabic_subtitles(kind, item_id, base_origin, media_sig):
 # ---------------------------------------------------------------------------
 # Default Addon Registry
 # ---------------------------------------------------------------------------
+def addon_key(transport_url):
+    """مفتاح موحّد لإضافة عبر كل الأجهزة: مساراتنا الداخلية (/addons/...) تُميَّز
+    بمسارها فقط — فيتطابق الترتيب سواء دخل المستخدم من localhost أو النفق —
+    والإضافات الخارجية بمسارها الكامل بلا استعلامات."""
+    u = str(transport_url or '').strip()
+    try:
+        p = urllib.parse.urlparse(u)
+        path = p.path or '/'
+        if path.startswith('/addons/'):
+            return path
+        if not p.scheme or not p.netloc:
+            return u
+        return f'{p.scheme}://{p.netloc}{path}'.rstrip('/')
+    except Exception:
+        return u
+
+
 def get_default_addons(base_origin):
     addons = [
         {
@@ -868,6 +886,25 @@ def get_default_addons(base_origin):
         for extra in CFG.get('global_extra_addons', []):
             if isinstance(extra, dict) and extra.get('transportUrl'):
                 addons.append(extra)
+        canon = dict(CFG.get('canonical_addon_order') or {})
+    # الترتيب الرسمي المحفوظ داخل التطبيق: يُطبَّق على الافتراضيات (ترتيب الأقسام
+    # + استبعاد ما حذفه المالك + إزالة التكرارات) فتبدأ أي أجهزة جديدة بنفس الشكل
+    if isinstance(canon.get('order'), list) and len(canon['order']) >= 2:
+        rank = {}
+        for i, k in enumerate(canon['order']):
+            if isinstance(k, str) and k not in rank:
+                rank[k] = i
+        removed = {k for k in (canon.get('removed') or []) if isinstance(k, str)}
+        seen = set()
+        unique = []
+        for a in addons:
+            k = addon_key(a.get('transportUrl'))
+            if k in removed or k in seen:
+                continue
+            seen.add(k)
+            unique.append(a)
+        unique.sort(key=lambda a: rank.get(addon_key(a.get('transportUrl')), len(rank) + 1000))
+        addons = unique
     return addons
 
 
@@ -1116,6 +1153,29 @@ class DodoHandler(BaseHTTPRequestHandler):
                     CFG['admin_pin'] = str(payload['new_admin_pin']).strip()[:30]
                 if isinstance(payload.get('global_extra_addons'), list):
                     CFG['global_extra_addons'] = payload['global_extra_addons'][:25]
+                # 💾 حفظ ترتيب الإضافات داخل التطبيق: يصبح الترتيب الرسمي لكل الأجهزة
+                if isinstance(payload.get('canonical_addon_order'), dict):
+                    new_order = payload['canonical_addon_order'].get('order')
+                    if isinstance(new_order, list) and len(new_order) >= 2:
+                        keys, seen_keys = [], set()
+                        for u in new_order:
+                            if not isinstance(u, str) or not u.strip():
+                                continue
+                            k = addon_key(u)
+                            if k and k not in seen_keys:
+                                seen_keys.add(k)
+                                keys.append(k)
+                        if len(keys) >= 2:
+                            prev = CFG.get('canonical_addon_order') or {}
+                            prev_order = {k for k in (prev.get('order') or []) if isinstance(k, str)}
+                            prev_removed = {k for k in (prev.get('removed') or []) if isinstance(k, str)}
+                            default_keys = {addon_key(a.get('transportUrl')) for a in get_default_addons(self.base_origin())}
+                            removed_set = (default_keys | prev_order | prev_removed) - set(keys)
+                            CFG['canonical_addon_order'] = {
+                                'version': int(prev.get('version') or 0) + 1,
+                                'order': keys,
+                                'removed': sorted(removed_set),
+                            }
                 save_config(CFG)
                 token = make_session_token(CFG)
             cookie = self._session_cookie_header(token)
@@ -1127,6 +1187,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                     'invite_code': CFG['invite_code'],
                     'privacy_mode': CFG['privacy_mode'],
                     'global_extra_addons': CFG['global_extra_addons'],
+                    'canonical_addon_order': CFG.get('canonical_addon_order'),
                 },
                 extra_headers={'Set-Cookie': cookie},
             )
@@ -1253,7 +1314,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 html = html.replace('</head>', '<link rel="preconnect" href="https://v3-cinemeta.strem.io" crossorigin><link rel="preconnect" href="https://torrentio.strem.fun" crossorigin><link href="/static/dodo_stremio_overlay.css?v=8" rel="stylesheet"></head>')
                 html = html.replace(
                     '<script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
-                    '<script src="/static/dodo_stremio_bridge.js?v=23"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
+                    '<script src="/static/dodo_stremio_bridge.js?v=24"></script><script src="296e65dd5a00319c808b6e270fcccab44b8e7a79/scripts/main.js"></script>',
                 )
                 return self.send_bytes(200, html.encode('utf-8'), 'text/html; charset=utf-8', cache='no-store', extra_headers=extra)
             return self.serve_static_file('index.html', cache='no-store', extra_headers=extra)
@@ -1330,6 +1391,7 @@ class DodoHandler(BaseHTTPRequestHandler):
                 app_sub = CFG.get('app_subtitle', '')
                 pmode = CFG.get('privacy_mode', 'internet_only')
                 sig = make_media_sig(CFG) if authed else ''
+                canon = dict(CFG.get('canonical_addon_order') or {})
             if not authed:
                 return self.send_json(
                     200,
@@ -1354,6 +1416,9 @@ class DodoHandler(BaseHTTPRequestHandler):
                         'cartoon_movies': len(MOVIES) + len(DISNEY_EXTERNAL),
                     },
                     'default_addons': get_default_addons(origin),
+                    'canonical_addon_order': (
+                        canon if isinstance(canon.get('order'), list) and canon.get('order') else None
+                    ),
                 },
             )
 

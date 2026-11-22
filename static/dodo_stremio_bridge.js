@@ -49,6 +49,130 @@
   }
   dodoApplySavedOrderToProfile();
 
+  // 🏛️ الترتيب الرسمي المحفوظ داخل التطبيق نفسه (كل الأجهزة): يصل عبر /api/bootstrap
+  // ويُخزَّن هنا محليًا ليُطبَّق بشكل متزامن قبل إنشاء المحرك؛ وعند ظهور إصدار أحدث
+  // يُطبَّق ثم تُعاد الصفحة مرة واحدة فقط — وبعدها تبقى حرية التعديل المحلي كما هي.
+  function dodoAddonKey(u) {
+    try {
+      var s = String(u || '');
+      var i = s.indexOf('://');
+      if (i < 0) return s;
+      var rest = s.slice(i + 3);
+      var slash = rest.indexOf('/');
+      var path = slash >= 0 ? rest.slice(slash) : '/';
+      if (path.indexOf('/addons/') === 0) return path;
+      var host = slash >= 0 ? rest.slice(0, slash) : rest;
+      var q = path.indexOf('?');
+      if (q >= 0) path = path.slice(0, q);
+      return s.slice(0, i + 3) + host + path;
+    } catch (e) {
+      return String(u || '');
+    }
+  }
+
+  function dodoApplyCanonicalOrder(canon) {
+    try {
+      if (!canon || !canon.version || !Array.isArray(canon.order) || canon.order.length < 2) return false;
+      var lastVer = parseInt(localStorage.getItem('dodo_canonical_order_ver') || '0', 10) || 0;
+      if (canon.version <= lastVer) return false;
+      var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+      if (!prof || !Array.isArray(prof.addons) || !prof.addons.length) return false;
+      var rankOf = {};
+      var n = 0;
+      canon.order.forEach(function (k) {
+        k = String(k);
+        if (!(k in rankOf)) rankOf[k] = n++;
+      });
+      var removed = {};
+      (canon.removed || []).forEach(function (k) { removed[String(k)] = true; });
+      var kept = [];
+      var removedAny = false;
+      prof.addons.forEach(function (a) {
+        if (!a || !a.transportUrl) return;
+        if (removed[dodoAddonKey(a.transportUrl)]) { removedAny = true; return; }
+        kept.push(a);
+      });
+      var indexed = kept.map(function (a, i) { return { a: a, i: i }; });
+      indexed.sort(function (x, y) {
+        var rx = rankOf[dodoAddonKey(x.a.transportUrl)];
+        var ry = rankOf[dodoAddonKey(y.a.transportUrl)];
+        if (rx === undefined) rx = n + 1000 + x.i;
+        if (ry === undefined) ry = n + 1000 + y.i;
+        return rx - ry;
+      });
+      var ordered = indexed.map(function (x) { return x.a; });
+      var changed = removedAny || ordered.length !== prof.addons.length;
+      for (var c = 0; c < ordered.length; c++) {
+        if (ordered[c] !== kept[c]) { changed = true; break; }
+      }
+      localStorage.setItem('dodo_canonical_order_ver', String(canon.version));
+      if (!changed) return false;
+      prof.addons = ordered;
+      localStorage.setItem('profile', JSON.stringify(prof));
+      try {
+        localStorage.setItem('dodo_addon_order_v1', JSON.stringify(ordered.map(function (a) { return a.transportUrl; })));
+      } catch (e2) {}
+      return true; // إعادة تحميل واحدة ليلتقط المحرك الترتيب الجديد
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function dodoCanonicalCache() {
+    try {
+      return JSON.parse(localStorage.getItem('dodo_canonical_order_cache') || 'null');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // طبّق آخر ترتيب رسمي معروف (من الكاش المحلي) بشكل متزامن قبل بدء المحرك
+  if (dodoApplyCanonicalOrder(dodoCanonicalCache())) {
+    window.location.reload();
+  }
+
+  // 📸 التقاط الترتيب من هذا الجهاز مرة واحدة: ?dodo_capture=1&dodo_pin=رمز المالك
+  function dodoHandleCaptureParam() {
+    try {
+      var qs = new URLSearchParams(window.location.search);
+      if (qs.get('dodo_capture') !== '1') return;
+      var pin = (qs.get('dodo_pin') || '').trim();
+      var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+      var urls = [];
+      (prof && Array.isArray(prof.addons) ? prof.addons : []).forEach(function (a) {
+        if (a && a.transportUrl && urls.indexOf(a.transportUrl) === -1) urls.push(a.transportUrl);
+      });
+      if (urls.length < 2) {
+        showDodoToast('تعذر قراءة ترتيب الإضافات من هذا الجهاز');
+        return;
+      }
+      var headers = { 'Content-Type': 'application/json' };
+      if (getInvite()) headers['X-Dodo-Invite'] = getInvite();
+      origFetch(ORIGIN + '/api/admin/update', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ admin_pin: pin, canonical_addon_order: { order: urls } }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.ok) {
+            showDodoToast('✅ تم حفظ ترتيبك داخل التطبيق — سيُطبَّق على كل الأجهزة');
+            try {
+              var u = new URL(window.location.href);
+              u.searchParams.delete('dodo_capture');
+              u.searchParams.delete('dodo_pin');
+              window.history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+            } catch (e) {}
+          } else {
+            showDodoToast('فشل الحفظ: ' + ((d && d.error) || 'رمز المالك غير صحيح'));
+          }
+        })
+        .catch(function () {
+          showDodoToast('فشل الاتصال بالسيرفر أثناء الحفظ');
+        });
+    } catch (e) {}
+  }
+
   // 🔧 مُصلِح روابط الإضافات الذاتية: أي إضافة على مساراتنا (كرتون/ترجمة/يوتيوب) تُعاد كتابتها
   //    بأصل الصفحة الحالي — فتنصلح تلقائيًا الإضافات المثبتة برابط نفق قديم أو 127.0.0.1
   //    وتعمل من أي جهاز، مع إزالة التكرارات الناتجة عن إعادة التثبيت.
@@ -62,7 +186,7 @@
       prof.addons.forEach(function (a) {
         if (!a || !a.transportUrl) { out.push(a); return; }
         var u = a.transportUrl;
-        var m = u.match(/^https?:\/\/[^\/]+(\/addons\/(?:cartoons|subtitles|youtube)\/manifest\.json)$/i);
+        var m = u.match(/^https?:\/\/[^\/]+(\/addons\/(?:cartoons|subtitles|youtube|anime)\/manifest\.json)$/i);
         var ym = u.match(/^https?:\/\/127\.0\.0\.1:8790\/manifest\.json(\?.*)?$/i);
         var path = null;
         if (m) path = m[1];
@@ -622,6 +746,14 @@
       '      <button type="button" id="dodo-copy-share" class="dodo-btn-ghost">📋 نسخ</button>' +
       '    </div>' +
       '  </div>' +
+      '  <hr style="border:0;border-top:1px solid rgba(255,255,255,0.1);margin:16px 0;" />' +
+      '  <div style="font-size:12.5px;color:#cbd5e1;">' +
+      '    <strong>🎛️ ترتيب الأقسام والإضافات:</strong>' +
+      '    <div style="display:flex;gap:8px;margin-top:8px;">' +
+      '      <button type="button" id="dodo-save-order-app-btn" class="dodo-btn-primary" style="flex:1;">💾 حفظ ترتيبي الحالي داخل التطبيق (كل الأجهزة)</button>' +
+      '    </div>' +
+      '    <p style="margin:6px 0 0;color:#94a3b8;font-size:11.5px;">يثبّت ترتيبك الحالي في التطبيق نفسه — فيظهر به هاتفك وأي جهاز جديد حتى بعد مسح بيانات المتصفح، وتبقى حرية التعديل المحلي بعدها. يتطلب رمز المالك.</p>' +
+      '  </div>' +
       '</div>';
     document.body.appendChild(modal);
 
@@ -636,6 +768,34 @@
       navigator.clipboard.writeText(document.getElementById('dodo-share-input').value).then(function () {
         showDodoToast('📋 تم نسخ رابط المشاركة!');
       });
+    });
+
+    document.getElementById('dodo-save-order-app-btn').addEventListener('click', async function () {
+      try {
+        var prof = JSON.parse(localStorage.getItem('profile') || 'null');
+        var urls = [];
+        (prof && Array.isArray(prof.addons) ? prof.addons : []).forEach(function (a) {
+          if (a && a.transportUrl && urls.indexOf(a.transportUrl) === -1) urls.push(a.transportUrl);
+        });
+        if (urls.length < 2) throw new Error('لم أجد إضافات مثبتة في ملف الإعداد');
+        var pin = window.prompt('أدخل رمز المالك لتثبيت الترتيب لكل الأجهزة (الافتراضي 2468):') || '';
+        if (!pin.trim()) return;
+        var headers = { 'Content-Type': 'application/json' };
+        if (getInvite()) headers['X-Dodo-Invite'] = getInvite();
+        var r = await origFetch(ORIGIN + '/api/admin/update', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ admin_pin: pin.trim(), canonical_addon_order: { order: urls } }),
+        });
+        var d = await r.json();
+        if (r.ok && d.ok) {
+          showDodoToast('✅ تم حفظ الترتيب داخل التطبيق — سيصل بقية الأجهزة عند فتحها');
+        } else {
+          showDodoToast((d && d.error) || 'فشل الحفظ — تحقق من رمز المالك');
+        }
+      } catch (err) {
+        showDodoToast('تعذر الحفظ: ' + (err && err.message ? err.message : 'حاول مجددًا'));
+      }
     });
 
     document.getElementById('dodo-any-link-form').addEventListener('submit', async function (ev) {
@@ -1141,6 +1301,17 @@
           return;
         }
         dodoSig = (boot && boot.media_sig) || '';
+        try {
+          var canonNew = boot && boot.canonical_addon_order;
+          var canonOld = dodoCanonicalCache();
+          if (canonNew && canonNew.version) {
+            localStorage.setItem('dodo_canonical_order_cache', JSON.stringify(canonNew));
+            if (!canonOld || !canonOld.version || canonNew.version > canonOld.version) {
+              if (dodoApplyCanonicalOrder(canonNew)) window.location.reload();
+            }
+          }
+        } catch (e) {}
+        dodoHandleCaptureParam();
         mountDodoQuickTools();
         mountDodoSectionArranger();
       })
